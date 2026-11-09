@@ -1,0 +1,10 @@
+{
+  "project": "demo-fps",
+  "imported": [
+    {
+      "src": "raw/pickup.wav",
+      "dst": "assets/pickup.wav",
+      "type": "audio"
+    }
+  ]
+}
