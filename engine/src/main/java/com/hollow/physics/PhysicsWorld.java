@@ -161,6 +161,13 @@ public final class PhysicsWorld {
     // ------------------------------------------------------------------
     // simulation
     // ------------------------------------------------------------------
+    // v2.3 physics tuning (PHY-032 substep, PHY-027 broadphase, COL-020 stats)
+    public int substeps = 1;                      // 1..4 — fixed sub-step slices per frame
+    public final Broadphase broadphase = new Broadphase();
+    public static final int BROADPHASE_THRESHOLD = 48;   // above this body count, grid pairs replace O(n²)
+    // v2.3 COL-020 collision statistics (read by profiler / hollow bench)
+    public int statPairChecks = 0, statPairHits = 0, statStaticChecks = 0, statStaticHits = 0;
+
     public void update(float dt){
         if(navGrid == null) navGrid = new NavGrid(this);
         if(dt <= 0f) return;
@@ -169,6 +176,15 @@ public final class PhysicsWorld {
         collisionEventCooldown = Math.max(0f, collisionEventCooldown - dt);
         for(Map.Entry<Long, Float> kv : collisionCooldown.entrySet())
             if(kv.getValue() > 0f) kv.setValue(kv.getValue() - dt);
+        // PHY-032: split frame dt into equal sub-steps for contact quality
+        int n = Math.max(1, Math.min(4, substeps));
+        float sdt = dt / n;
+        for(int s = 0; s < n; s++) subStep(sdt);
+        updateTriggers();
+    }
+
+    private void subStep(float dt){
+        statPairChecks = 0; statPairHits = 0;
         boolean anyAwake = false;
         for(RigidBody rb : bodies){
             if(rb.entity == null || !rb.entity.active || rb.entity.destroyed) continue;
@@ -177,14 +193,18 @@ public final class PhysicsWorld {
             anyAwake = true;
         }
         if(anyAwake || joints.joints.size() > 0){
-            solveDynamicPairs(dt);
+            if(bodies.size() > BROADPHASE_THRESHOLD){
+                broadphase.refresh(bodies, 1f);
+                solveDynamicPairsBroadphase(dt);
+            } else {
+                solveDynamicPairs(dt);
+            }
             joints.solve(dt);
         }
-        updateTriggers();
     }
 
     // ------------------------------------------------------------------
-    // v2 body integration (shape-aware)
+    // v2 body integration (shape-aware) + v2.3 CCD (PHY-024)
     // ------------------------------------------------------------------
     private void integrateBody(RigidBody rb, float dt){
         Entity e = rb.entity;
@@ -199,13 +219,18 @@ public final class PhysicsWorld {
         }
         Vec3 disp = sA.set(rb.velocity).scale(dt);
         float r = rb.effectiveRadius();
-        int n = 1 + (int)(disp.len() / Math.max(0.05f, r * 0.5f));
-        n = Math.min(n, 16);
-        Vec3 step = sB.set(disp).scale(1f / n);
-        rb.grounded = false;
-        for(int i = 0; i < n; i++){
-            e.position.add(step);
-            resolveBodyStatics(rb);
+        // PHY-024 CCD: tunneling guard — swept ray to the target position clamps at first wall
+        if(rb.ccd && disp.len() > r * 0.9f){
+            integrateBodyCCD(rb, disp);
+        } else {
+            int n = 1 + (int)(disp.len() / Math.max(0.05f, r * 0.5f));
+            n = Math.min(n, 16);
+            Vec3 step = sB.set(disp).scale(1f / n);
+            rb.grounded = false;
+            for(int i = 0; i < n; i++){
+                e.position.add(step);
+                resolveBodyStatics(rb);
+            }
         }
         // angular integration: yaw only (mobile-friendly single-axis spin; pitch/roll reserved)
         if(Math.abs(rb.angularVelocity.y) > 1e-5f){
@@ -230,11 +255,90 @@ public final class PhysicsWorld {
         e.markDirtyDeep();
     }
 
+    /** PHY-024: continuous sweep — ray from prev position to target; on hit, land at contact,
+     *  kill the normal component (restitution via statics pass) — no tunneling at any speed */
+    private void integrateBodyCCD(RigidBody rb, Vec3 disp){
+        Entity e = rb.entity;
+        Vec3 from = e.position.cpy();
+        Vec3 to = from.cpy().add(disp);
+        staticSweepScratch.clear();
+        broadphase.queryStatics(shapes, from, to, staticSweepScratch);
+        float r = bodyRadiusScaled(rb);
+        float bestT = Float.MAX_VALUE;
+        Vec3 bestN = new Vec3();
+        Entity bestE = null;
+        Vec3 d = disp.cpy();
+        float dl = d.len();
+        if(dl < 1e-9f) return;
+        d.scale(1f / dl);
+        Vec3 nrm = new Vec3();
+        for(StaticShape s : staticSweepScratch){
+            if(s.isTrigger) continue;
+            statStaticChecks++;
+            // inflate shape by body radius: test sphere-cast as 3 rays (center + ±tangent offset)
+            float t = -1f;
+            if(s.kind == KIND_BOX){
+                t = raySphereCastBox(from, d, dl, s.bounds, r, nrm);
+            } else if(s.kind == KIND_SPHERE){
+                t = raySphereCastSphere(from, d, dl, s.center, s.radius + r, nrm);
+            } else {
+                t = raySphereCastCapsule(from, d, dl, s.capA, s.capB, s.radius + r, nrm);
+            }
+            if(t >= 0f && t < bestT){
+                bestT = t;
+                bestN.set(nrm);
+                bestE = s.entity;
+            }
+        }
+        rb.grounded = false;
+        if(bestT <= dl){
+            float lead = Math.min(dl, Math.max(0f, bestT - r * 0.25f));
+            e.position.addScaled(d, lead);
+            float vn = rb.velocity.dot(bestN);
+            if(vn < 0f){
+                float rest = Math.max(0f, PhysicsMaterials.pairRestitution(rb, null)) * (Math.abs(vn) > 1.0f ? 1f : 0.4f);
+                rb.velocity.addScaled(bestN, -(1f + rest) * vn);
+                applyFriction(rb, bestN, vn);
+            }
+            if(bestE != null && !collisionEventCooldown(e, bestE)) fireCollision(e, bestE, Math.abs(vn));
+            statStaticHits++;
+        } else {
+            e.position.add(disp);
+        }
+        resolveBodyStatics(rb);
+    }
+
+    private final List<StaticShape> staticSweepScratch = new ArrayList<>();
+
+    /** sphere-cast vs AABB: treat as ray vs inflated box (conservative but stable) */
+    private static float raySphereCastBox(Vec3 o, Vec3 d, float maxT, AABB b, float r, Vec3 outN){
+        AABB inflated = new AABB(
+            new Vec3(b.min.x - r, b.min.y - r, b.min.z - r),
+            new Vec3(b.max.x + r, b.max.y + r, b.max.z + r));
+        float t = rayBox(o, d, inflated, outN);
+        return (t >= 0f && t <= maxT) ? t : -1f;
+    }
+
+    private static float raySphereCastSphere(Vec3 o, Vec3 d, float maxT, Vec3 c, float rad, Vec3 outN){
+        float t = raySphere(o, d, c, rad, outN);
+        return (t >= 0f && t <= maxT) ? t : -1f;
+    }
+
+    private static float raySphereCastCapsule(Vec3 o, Vec3 d, float maxT, Vec3 a, Vec3 b2, float rad, Vec3 outN){
+        float t1 = raySphere(o, d, a, rad, outN);
+        Vec3 n2 = new Vec3();
+        float t2 = raySphere(o, d, b2, rad, n2);
+        float t = -1f;
+        if(t1 >= 0f && t1 <= maxT){ t = t1; }
+        if(t2 >= 0f && t2 <= maxT && (t < 0f || t2 < t)){ t = t2; outN.set(n2); }
+        return t;
+    }
+
     private float bodyRadiusScaled(RigidBody rb){
         return rb.effectiveRadius() * Math.max(1e-3f, worldScale(rb.entity));
     }
 
-    /** v2: resolve body shape vs static shapes; friction + restitution, wakes body on contact */
+    /** v2: resolve body shape vs static shapes; v2.3 friction/restitution from PhysicsMaterials (PHY-029) */
     private void resolveBodyStatics(RigidBody rb){
         Entity e = rb.entity;
         Vec3 p = e.position;
@@ -243,6 +347,7 @@ public final class PhysicsWorld {
             boolean any = false;
             for(StaticShape s : shapes){
                 if(s.isTrigger) continue;
+                statStaticChecks++;
                 float pen; Vec3 outN;
                 if(s.kind == KIND_BOX){
                     pen = spherePenBox(p, r, s.bounds.min, s.bounds.max, cn);
@@ -253,15 +358,20 @@ public final class PhysicsWorld {
                 }
                 if(pen <= 0f) continue;
                 any = true;
+                statStaticHits++;
                 outN = cn;
                 p.addScaled(outN, pen);
                 float vn = rb.velocity.dot(outN);
                 if(vn < 0f){
-                    // impulse with restitution
-                    float rest = Math.max(0f, rb.bounciness) * (Math.abs(vn) > 1.0f ? 1f : 0.4f);
+                    // impulse with restitution (material pair combined)
+                    RigidBody matRef = s.entity != null ? s.entity.get(RigidBody.class) : null;
+                    float rest = Math.max(0f, PhysicsMaterials.pairRestitution(rb, matRef)) * (Math.abs(vn) > 1.0f ? 1f : 0.4f);
                     rb.velocity.addScaled(outN, -(1f + rest) * vn);
-                    // Coulomb friction on tangential component
-                    applyFriction(rb, outN, vn);
+                    // Coulomb friction on tangential component (material pair)
+                    float mu = matRef != null && matRef.material != null && !matRef.material.isEmpty()
+                        ? PhysicsMaterials.pairFriction(rb, matRef)
+                        : Math.max(0f, rb.friction);
+                    applyFrictionMu(rb, outN, vn, mu);
                     if(rb.sleepEnabled && rb.sleeping) rb.wake();
                     if(outN.y > 0.7f) rb.grounded = true;
                     // collision event (rate limited per pair)
@@ -272,17 +382,19 @@ public final class PhysicsWorld {
         }
     }
 
-    private void applyFriction(RigidBody rb, Vec3 normal, float vn){
-        // remove tangential velocity proportionally to friction and normal speed
-        float mu = Math.max(0f, rb.friction);
+    private void applyFrictionMu(RigidBody rb, Vec3 normal, float vn, float mu){
         if(mu <= 0.001f) return;
         Vec3 tang = rb.velocity.cpy().addScaled(normal, -rb.velocity.dot(normal));
         float tl = tang.len();
         if(tl < 1e-6f) return;
-        float maxD = mu * Math.abs(vn) + 0.02f;      // impulse budget
-        float remove = Math.min(tl, maxD * 60f * 0.016f * 10f); // per-substep, clamped
+        float maxD = mu * Math.abs(vn) + 0.02f;
+        float remove = Math.min(tl, maxD * 60f * 0.016f * 10f);
         tang.scale(-remove / tl);
         rb.velocity.add(tang);
+    }
+
+    private void applyFriction(RigidBody rb, Vec3 normal, float vn){
+        applyFrictionMu(rb, normal, vn, Math.max(0f, rb.friction));
     }
 
     private boolean collisionEventCooldown(Entity a, Entity b){
@@ -310,9 +422,11 @@ public final class PhysicsWorld {
 
     // ------------------------------------------------------------------
     // v2 dynamic-dynamic pairs (sphere approx, equal-weight impulse exchange)
+    // v2.3: layer filter (PHY-028) + material pairs (PHY-029) + stats (COL-020)
     // ------------------------------------------------------------------
     private void solveDynamicPairs(float dt){
         int n = bodies.size();
+        statPairChecks++;
         for(int i = 0; i < n; i++){
             RigidBody A = bodies.get(i);
             if(A.entity == null || !A.entity.active || A.entity.destroyed) continue;
@@ -321,43 +435,75 @@ public final class PhysicsWorld {
                 if(B.entity == null || !B.entity.active || B.entity.destroyed) continue;
                 if(A.kinematic && B.kinematic) continue;
                 if(A.sleeping && B.sleeping) continue;
+                if(!A.interacts(B)) continue;                      // PHY-028 layer mask
+                statPairChecks++;
                 float ra = bodyRadiusScaled(A), rbB = bodyRadiusScaled(B);
                 Vec3 pa = A.entity.position, pb = B.entity.position;
                 Vec3 d = sC.set(pb).sub(pa);
                 float dist = d.len();
                 float minD = ra + rbB;
                 if(dist >= minD || dist < 1e-6f) continue;
-                Vec3 nrm = d.scale(1f / dist);
-                float pen = minD - dist;
-                float wA = A.kinematic || A.mass <= 0f ? 0f : 1f / A.mass;
-                float wB = B.kinematic || B.mass <= 0f ? 0f : 1f / B.mass;
-                float wSum = wA + wB;
-                if(wSum < 1e-8f) continue;
-                if(!A.kinematic) A.entity.position.addScaled(nrm, -pen * (wA / wSum));
-                if(!B.kinematic) B.entity.position.addScaled(nrm, pen * (wB / wSum));
-                float relV = B.velocity.dot(nrm) - A.velocity.dot(nrm);
-                if(relV < 0f){
-                    float e2 = Math.max(A.bounciness, B.bounciness);
-                    float jImp = -(1f + e2) * relV / wSum;
-                    if(!A.kinematic) A.velocity.addScaled(nrm, -jImp * wA);
-                    if(!B.kinematic) B.velocity.addScaled(nrm,  jImp * wB);
-                    // friction on tangential
-                    Vec3 vt = sB.set(B.velocity).sub(A.velocity).addScaled(nrm, -relV);
-                    float vtLen = vt.len();
-                    if(vtLen > 1e-5f){
-                        float mu = 0.5f * (A.friction + B.friction);
-                        float jt = Math.min(vtLen / wSum, mu * jImp);
-                        Vec3 t = vt.scale(1f / vtLen);
-                        if(!A.kinematic) A.velocity.addScaled(t, -jt * wA);
-                        if(!B.kinematic) B.velocity.addScaled(t,  jt * wB);
-                    }
-                    if(A.sleepEnabled) A.wake();
-                    if(B.sleepEnabled) B.wake();
-                    if(!collisionEventCooldown(A.entity, B.entity)) fireCollision(A.entity, B.entity, Math.abs(relV));
-                }
-                A.entity.markDirtyDeep(); B.entity.markDirtyDeep();
+                statPairHits++;
+                solvePair(A, B, d, dist, minD);
             }
         }
+    }
+
+    /** PHY-027: broadphase-accelerated pair pass (bodies > threshold) */
+    private void solveDynamicPairsBroadphase(float dt){
+        for(long[] pairArr : broadphase.dynamicPairs){
+            long pair = pairArr[0];
+            int lo = (int)(pair >>> 32), hi = (int)(pair & 0xFFFFFFFFL);
+            RigidBody A = bodyById(lo), B = bodyById(hi);
+            if(A == null || B == null || A.entity == null || B.entity == null) continue;
+            if(!A.entity.active || !B.entity.active || A.entity.destroyed || B.entity.destroyed) continue;
+            if(A.kinematic && B.kinematic) continue;
+            if(A.sleeping && B.sleeping) continue;
+            if(!A.interacts(B)) continue;
+            Vec3 d = sC.set(B.entity.position).sub(A.entity.position);
+            float dist = d.len();
+            float minD = bodyRadiusScaled(A) + bodyRadiusScaled(B);
+            if(dist >= minD || dist < 1e-6f) continue;
+            solvePair(A, B, d, dist, minD);
+        }
+    }
+
+    private RigidBody bodyById(int id){
+        for(RigidBody rb : bodies)
+            if(rb.entity != null && rb.entity.id == id) return rb;
+        return null;
+    }
+
+    /** shared pair resolution — position split, restitution/friction from materials, events */
+    private void solvePair(RigidBody A, RigidBody B, Vec3 dRaw, float dist, float minD){
+        Vec3 nrm = dRaw.cpy().scale(1f / dist);
+        float pen = minD - dist;
+        float wA = A.kinematic || A.mass <= 0f ? 0f : 1f / A.mass;
+        float wB = B.kinematic || B.mass <= 0f ? 0f : 1f / B.mass;
+        float wSum = wA + wB;
+        if(wSum < 1e-8f) return;
+        if(!A.kinematic) A.entity.position.addScaled(nrm, -pen * (wA / wSum));
+        if(!B.kinematic) B.entity.position.addScaled(nrm, pen * (wB / wSum));
+        float relV = B.velocity.dot(nrm) - A.velocity.dot(nrm);
+        if(relV < 0f){
+            float e2 = Math.max(0f, PhysicsMaterials.pairRestitution(A, B));
+            float jImp = -(1f + e2) * relV / wSum;
+            if(!A.kinematic) A.velocity.addScaled(nrm, -jImp * wA);
+            if(!B.kinematic) B.velocity.addScaled(nrm,  jImp * wB);
+            Vec3 vt = sB.set(B.velocity).sub(A.velocity).addScaled(nrm, -relV);
+            float vtLen = vt.len();
+            if(vtLen > 1e-5f){
+                float mu = PhysicsMaterials.pairFriction(A, B);
+                float jt = Math.min(vtLen / wSum, mu * jImp);
+                Vec3 t = vt.scale(1f / vtLen);
+                if(!A.kinematic) A.velocity.addScaled(t, -jt * wA);
+                if(!B.kinematic) B.velocity.addScaled(t,  jt * wB);
+            }
+            if(A.sleepEnabled) A.wake();
+            if(B.sleepEnabled) B.wake();
+            if(!collisionEventCooldown(A.entity, B.entity)) fireCollision(A.entity, B.entity, Math.abs(relV));
+        }
+        A.entity.markDirtyDeep(); B.entity.markDirtyDeep();
     }
 
     // ------------------------------------------------------------------
@@ -392,6 +538,10 @@ public final class PhysicsWorld {
     }
 
     public int bodyCount(){ return bodies.size(); }
+    /** v2.3: read-only dynamic body list (cloth collision, ragdoll helpers, audio emitters) */
+    public List<RigidBody> bodyList(){ return bodies; }
+    /** v2.3: registered character controllers (wind zones, horror director queries) */
+    public List<CharacterController> controllersView(){ return controllers; }
     public int awakeCount(){
         int n = 0;
         for(RigidBody rb : bodies) if(!rb.sleeping && !rb.kinematic) n++;

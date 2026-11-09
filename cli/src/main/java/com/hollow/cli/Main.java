@@ -34,6 +34,7 @@ public final class Main {
                 case "net": Commands.netTest(args); break;
                 case "audio-render": Commands.audioRender(args); break;
                 case "eqs": Commands.eqsTest(args); break;
+                case "pose": PoseCmd.run(args); break;
                 case "selftest": Commands.selfTest(); break;
                 // v2.1 — interactive console (Batch 1)
                 case "shell": case "repl": System.exit(Shell.run(args)); break;

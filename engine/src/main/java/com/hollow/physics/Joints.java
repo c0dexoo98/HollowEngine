@@ -9,14 +9,17 @@ import com.hollow.scene.Entity;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Constraints between two RigidBody entities (HollowEngine 2.0).
+/** Constraints between two RigidBody entities (HollowEngine 2.0, extended v2.3).
  *  <pre>
  *  Joints.Distance : keeps world distance within [min,max]
  *  Joints.Spring   : Hooke spring toward restLength (stiffness/damping)
- *  Joints.Hinge    : pins anchors together, slides/rotates along axis (axis-lock lite, optional motor)
+ *  Joints.Hinge    : pins anchors together, slides/rotates along axis (axis-lock lite)
+ *                    v2.3: angular motor + swing limits + auto-stop (PHY-025 door physics)
+ *  Joints.Point    : v2.3 ball-socket — pins two local anchor points together (PHY-026)
  *  Joints.Manager  : held by PhysicsWorld — collects Joint components on world load, solves per step
+ *                    v2.3: stress meter + stress-break + break events (PHY-035)
  *  </pre>
- *  Joint components serialize as {"type":"DistanceJoint"/"SpringJoint"/"HingeJoint", ...}.
+ *  Joint components serialize as {"type":"DistanceJoint"/"SpringJoint"/"HingeJoint"/"PointJoint", ...}.
  */
 public final class Joints {
     private Joints() {}
@@ -25,8 +28,13 @@ public final class Joints {
         public String other = "";        // name of the other entity
         public boolean breakable = false;
         public float breakForce = 0f;    // impulse magnitude that breaks (if breakable)
+        // v2.3 PHY-035 stress meter: running average of applied impulse; break when exceeding limit
+        public float stressLimit = 0f;   // 0 = stress tracking without break
+        public float stress = 0f;        // smoothed impulse magnitude (read by gameplay)
         protected boolean broken = false;
         protected RigidBody bodyA, bodyB;
+        /** v2.3: headless/tests — explicit world for "other" lookup when GameApp is absent */
+        public com.hollow.scene.World bindWorldOverride = null;
 
         public boolean isBroken(){ return broken; }
         public void breakJoint(){ broken = true; }
@@ -37,7 +45,8 @@ public final class Joints {
         void bind(){
             bodyA = entity != null ? entity.get(RigidBody.class) : null;
             com.hollow.game.GameApp app = com.hollow.game.GameApp.instance;
-            com.hollow.scene.World w = app != null ? app.world : null;
+            com.hollow.scene.World w = bindWorldOverride != null ? bindWorldOverride
+                : (app != null ? app.world : null);
             Entity ob = entity != null && w != null ? w.find(other) : null;
             bodyB = ob != null ? ob.get(RigidBody.class) : null;
             if(bodyA == null) bodyA = ensureBody(entity);
@@ -53,7 +62,8 @@ public final class Joints {
 
         @Override public void save(JsonW w){
             w.obj(); w.kv("type", type()).kv("other", other)
-              .kv("breakable", breakable).kv("breakForce", breakForce);
+              .kv("breakable", breakable).kv("breakForce", breakForce)
+              .kv("stressLimit", stressLimit);
             saveFields(w);
             w.endObj();
         }
@@ -63,6 +73,7 @@ public final class Joints {
             other = n.str("other","");
             breakable = n.bool("breakable", false);
             breakForce = n.flt("breakForce", 0f);
+            stressLimit = n.flt("stressLimit", 0f);
             loadFields(n);
         }
         abstract void loadFields(JsonV n);
@@ -139,11 +150,20 @@ public final class Joints {
     }
 
     /** axis-lock lite: pins two bodies together and locks relative motion along an axis,
-     *  optional motor drives relative speed along the axis — approximates a hinge for mobile scale. */
+     *  optional motor drives relative speed along the axis — approximates a hinge for mobile scale.
+     *  v2.3 (PHY-025): angular motor spins bodyB around the axis (rad/s) with a torque cap,
+     *  and optional limits stop rotation at [minAngle,maxAngle] — a real door hinge. */
     public static final class Hinge extends Joint {
         public Vec3 axis = new Vec3(0, 1, 0);
-        public float motorSpeed = 0f;      // units/s along axis (optional motor)
+        public float motorSpeed = 0f;      // units/s along axis (optional linear motor)
+        // v2.3 door-hinge extension:
+        public float angularMotorSpeed = 0f;   // rad/s around axis (0 = free)
+        public float maxMotorTorque = 0f;      // 0 = unlimited
+        public boolean useLimits = false;
+        public float minAngle = 0f, maxAngle = 90f;   // degrees, relative to bodyA yaw at bind time
         public Hinge(){ }
+
+        float boundYawA = 0f;
 
         @Override float solve(float dt){
             if(entity == null || bodyA == null || bodyB == null || broken) return 0f;
@@ -164,12 +184,60 @@ public final class Joints {
             }
             if(!bodyA.kinematic) bodyA.velocity.addScaled(n, -imp);
             if(!bodyB.kinematic) bodyB.velocity.addScaled(n,  imp);
+
+            float applied = Math.abs(relV);
+            // v2.3 angular motor: drive relative yaw around axis toward motorSpeed
+            if(Math.abs(angularMotorSpeed) > 1e-5f && dt > 0f){
+                float relYaw = relativeYaw();
+                float targetYawDelta = angularMotorSpeed * dt * com.hollow.core.MathX.DEG;
+                float stepYaw = targetYawDelta;
+                if(useLimits){
+                    float next = clampAngle(relYaw + stepYaw);
+                    stepYaw = next - relYaw;
+                }
+                if(Math.abs(stepYaw) > 1e-6f){
+                    float torqueImp = Math.abs(stepYaw) / Math.max(1e-4f, dt);
+                    if(maxMotorTorque > 0f && torqueImp > maxMotorTorque) stepYaw *= maxMotorTorque / torqueImp;
+                    com.hollow.core.Quat delta = com.hollow.core.Quat.fromAxisAngle(n.x, n.y, n.z, stepYaw);
+                    delta.mul(bodyB.entity.rotation);
+                    bodyB.entity.rotation.set(delta).norm();
+                    bodyB.entity.markDirtyDeep();
+                    applied = Math.max(applied, Math.abs(stepYaw) / Math.max(1e-4f, dt));
+                }
+            }
             entity.markDirtyDeep(); bodyB.entity.markDirtyDeep();
-            return Math.abs(relV);
+            return applied;
+        }
+
+        private float relativeYaw(){
+            com.hollow.core.Quat q = bodyB.entity.rotation.cpy();
+            com.hollow.core.Quat inv = bodyA.entity.rotation.cpy();
+            float w = inv.w, x = -inv.x, y = -inv.y, z = -inv.z;   // conjugate
+            // q_rel = qB * qA^-1 (yaw extraction)
+            float yaw = (float)Math.atan2(2f * (w * q.y + z * -q.x), 1f - 2f * (q.y * q.y + q.z * q.z));
+            yaw -= boundYawA;
+            return (float)Math.toDegrees(yaw);
+        }
+
+        private float clampAngle(float deg){
+            float d = deg;
+            while(d > 180f) d -= 360f;
+            while(d < -180f) d += 360f;
+            return Math.max(minAngle, Math.min(maxAngle, d));
+        }
+
+        @Override void bind(){
+            super.bind();
+            if(bodyA != null && bodyA.entity != null){
+                com.hollow.core.Quat q = bodyA.entity.rotation;
+                boundYawA = (float)Math.toDegrees(Math.atan2(2f * (q.w * q.y + q.z * q.x), 1f - 2f * (q.y * q.y + q.z * q.z)));
+            }
         }
 
         @Override void saveFields(JsonW w){
-            w.kvv("axis", axis.x, axis.y, axis.z).kv("motorSpeed",motorSpeed);
+            w.kvv("axis", axis.x, axis.y, axis.z).kv("motorSpeed",motorSpeed)
+             .kv("angularMotorSpeed",angularMotorSpeed).kv("maxMotorTorque",maxMotorTorque)
+             .kv("useLimits",useLimits).kv("minAngle",minAngle).kv("maxAngle",maxAngle);
         }
         @Override void loadFields(JsonV n){
             Object ax = n.get("axis");
@@ -177,8 +245,62 @@ public final class Joints {
                 axis.set(f(l.get(0)), f(l.get(1)), f(l.get(2)));
             }
             motorSpeed = n.flt("motorSpeed",0f);
+            angularMotorSpeed = n.flt("angularMotorSpeed",0f);
+            maxMotorTorque = n.flt("maxMotorTorque",0f);
+            useLimits = n.bool("useLimits",false);
+            minAngle = n.flt("minAngle",0f);
+            maxAngle = n.flt("maxAngle",90f);
         }
         @Override public String type(){ return "HingeJoint"; }
+        private static float f(Object o){
+            if(o instanceof Number num) return num.floatValue();
+            try { return Float.parseFloat(String.valueOf(o)); } catch(Exception e){ return 0f; }
+        }
+    }
+
+    /** v2.3 PHY-026 — ball/socket point constraint: pins local anchorA (this entity) to local
+     *  anchorB (other entity) in world space. Full 3-axis position lock with velocity projection
+     *  at the anchors; rotation stays free (ball-socket semantics). */
+    public static final class Point extends Joint {
+        public Vec3 anchorA = new Vec3();     // local offset on this entity
+        public Vec3 anchorB = new Vec3();     // local offset on the other entity
+        public Point(){ }
+        public Point(Vec3 aLocal, Vec3 bLocal){ anchorA.set(aLocal); anchorB.set(bLocal); }
+
+        @Override float solve(float dt){
+            if(entity == null || bodyA == null || bodyB == null || broken) return 0f;
+            Vec3 wa = entity.worldMatrix.transformPoint(anchorA);
+            Vec3 wb = bodyB.entity.worldMatrix.transformPoint(anchorB);
+            Vec3 err = wb.cpy().sub(wa);
+            float d = err.len();
+            if(d < 1e-5f) return 0f;
+            float wA = bodyA.kinematic || bodyA.mass <= 0f ? 0f : 1f / bodyA.mass;
+            float wB = bodyB.kinematic || bodyB.mass <= 0f ? 0f : 1f / bodyB.mass;
+            float wSum = wA + wB;
+            if(wSum < 1e-8f) return 0f;
+            Vec3 n = err.scale(1f / d);
+            float corr = d;
+            if(wA > 0f && !bodyA.kinematic){
+                entity.position.addScaled(n, corr * (wA / wSum));
+                bodyA.velocity.addScaled(n, -bodyA.velocity.dot(n) * 0.5f);
+            }
+            if(wB > 0f && !bodyB.kinematic){
+                bodyB.entity.position.addScaled(n, -corr * (wB / wSum));
+                bodyB.velocity.addScaled(n, bodyB.velocity.dot(n) * 0.5f);
+            }
+            entity.markDirtyDeep(); bodyB.entity.markDirtyDeep();
+            return d;
+        }
+
+        @Override void saveFields(JsonW w){
+            w.kvv("anchorA",anchorA.x,anchorA.y,anchorA.z).kvv("anchorB",anchorB.x,anchorB.y,anchorB.z);
+        }
+        @Override void loadFields(JsonV n){
+            Object a = n.get("anchorA"), b = n.get("anchorB");
+            if(a instanceof List<?> l && l.size() >= 3) anchorA.set(f(l.get(0)), f(l.get(1)), f(l.get(2)));
+            if(b instanceof List<?> l && l.size() >= 3) anchorB.set(f(l.get(0)), f(l.get(1)), f(l.get(2)));
+        }
+        @Override public String type(){ return "PointJoint"; }
         private static float f(Object o){
             if(o instanceof Number num) return num.floatValue();
             try { return Float.parseFloat(String.valueOf(o)); } catch(Exception e){ return 0f; }
@@ -209,9 +331,40 @@ public final class Joints {
                     Joint j = joints.get(i);
                     if(j.isBroken() || j.entity == null || j.entity.destroyed){ joints.remove(i); continue; }
                     float imp = j.solve(dt);
+                    // v2.3 PHY-035 stress meter: smoothed load + optional stress break
+                    if(j.stressLimit > 0f){
+                        j.stress = j.stress * 0.9f + imp * 0.1f;
+                        if(j.stress > j.stressLimit) j.breakJoint();
+                    }
                     if(j.breakable && j.breakForce > 0f && imp > j.breakForce) j.breakJoint();
+                    if(j.isBroken()) fireJointBreak(j);
                 }
             }
+        }
+
+        /** v2.3: "joint_break" EventBus event (name of holder entity + stress at break) */
+        private void fireJointBreak(Joint j){
+            com.hollow.game.GameApp g = com.hollow.game.GameApp.instance;
+            if(g == null || g.services() == null || g.services().events == null) return;
+            java.util.Map<String,Object> data = new java.util.LinkedHashMap<>();
+            data.put("entity", j.entity != null ? j.entity.name : "?");
+            data.put("other", j.other);
+            data.put("stress", (double)j.stress);
+            g.services().events.fire("joint_break", data);
+        }
+
+        /** v2.3 PHY-035 summary for profiler/CLI: highest stressed joints */
+        public String stressReport(int topN){
+            List<Joint> sorted = new ArrayList<>(joints);
+            sorted.sort((a, b) -> Float.compare(b.stress, a.stress));
+            StringBuilder sb = new StringBuilder();
+            for(int i = 0; i < Math.min(topN, sorted.size()); i++){
+                Joint j = sorted.get(i);
+                sb.append(String.format("%s<->%s stress=%.2f%s%n",
+                    j.entity != null ? j.entity.name : "?", j.other, j.stress,
+                    j.isBroken() ? " BROKEN" : ""));
+            }
+            return sb.toString();
         }
     }
 }

@@ -23,6 +23,7 @@ public final class AudioEngine {
     public final Vec3 listenerPos = new Vec3();
     public final Vec3 listenerForward = new Vec3(0, 0, -1);
     public final Vec3 listenerUp = new Vec3(0, 1, 0);
+    public final Vec3 listenerVelocity = new Vec3();   // v2.3 AUD-017 doppler listener velocity
 
     private AssetDB assets;
     private AudioOut out;
@@ -40,6 +41,22 @@ public final class AudioEngine {
     public final float[] busReverbSend = {0f, 0.05f, 0.15f, 0.35f, 0.1f};
     private float[] fMix = new float[8192];       // float master accumulate
     private float[] fWet = new float[8192];       // reverb send accumulate
+    private float[] fDelay = new float[8192];     // v2.3 delay send accumulate
+
+    // ---- v2.3 (Batch 3) ----
+    public final com.hollow.audio.AudioWorld.Doppler doppler = new com.hollow.audio.AudioWorld.Doppler();   // AUD-017
+    public boolean hrtfEnabled = false;                                                                     // AUD-018
+    public final com.hollow.audio.AudioDsp.Binaural binaural = new com.hollow.audio.AudioDsp.Binaural();
+    public final com.hollow.audio.AudioDsp.FFTConvolver convolver = new com.hollow.audio.AudioDsp.FFTConvolver();  // AUD-019
+    public boolean convolutionReverb = false;             // true = convolver replaces freeverb
+    public final com.hollow.audio.AudioDsp.Delay delay = new com.hollow.audio.AudioDsp.Delay();             // AUD-029
+    public AudioStreams.AudioClipCache clipCache = null;  // AUD-027 (optional)
+    public final com.hollow.audio.AudioWorld.ReverbZoneManager reverbZones = new com.hollow.audio.AudioWorld.ReverbZoneManager(); // AUD-024
+    public final com.hollow.audio.AudioWorld.ListenerSmoother listenerSmoother = new com.hollow.audio.AudioWorld.ListenerSmoother(); // AUD-025
+    public final com.hollow.audio.AudioStreams.FocusPolicy focusPolicy = new com.hollow.audio.AudioStreams.FocusPolicy(); // AUD-026
+    public com.hollow.audio.AudioStreams.AudioFocusBridge focusBridge = null;
+    private boolean focusGranted = true;
+    private float[] convWetMono = new float[2048];   // AUD-019 scratch (no per-tick alloc)
 
     // scratch (avoid per-update allocation)
     private final Vec3 tmpRel = new Vec3();
@@ -49,10 +66,44 @@ public final class AudioEngine {
         this.assets = assets; this.out = out; this.sampleRate = Math.max(8000, sampleRate);
         voices.clear();
         eq.set(this.sampleRate, 0f, 0f, 0f);
+        binaural.setSampleRate(this.sampleRate);
+        delay.setSampleRate(this.sampleRate);
         if(out != null) out.open(this.sampleRate);
         Log.i("Audio", "initialized (out=" + (out == null ? "null/headless" : out.getClass().getSimpleName()) + ")");
     }
     public int sampleRate(){ return sampleRate; }
+
+    /** v2.3 AUD-026: install + request focus; focus loss ducks music and stops buses */
+    public void installFocus(com.hollow.audio.AudioStreams.AudioFocusBridge bridge){
+        focusBridge = bridge;
+        if(bridge == null) return;
+        bridge.onFocusLost(() -> {
+            focusGranted = false;
+            setBusVolume(BUS_MUSIC, focusPolicy.musicDuck);
+            if(focusPolicy.pauseVoices){
+                stopBus(BUS_SFX); stopBus(BUS_AMBIENT); stopBus(BUS_VOICE);
+            }
+            Log.i("Audio", "focus lost — ducked");
+        });
+        focusGranted = bridge.requestFocus();
+    }
+
+    /** v2.3 AUD-026: regain focus (foreground resume) */
+    public void refocus(){
+        focusGranted = true;
+        com.hollow.core.CVar master = com.hollow.core.CVar.get("audio.volume.master");
+        if(master != null) setBusVolume(BUS_MASTER, master.getFloat());
+        com.hollow.core.CVar music = com.hollow.core.CVar.get("audio.volume.music");
+        if(music != null) setBusVolume(BUS_MUSIC, music.getFloat());
+    }
+
+    /** v2.3 AUD-025: smoothed listener (anti-jitter follow) */
+    public void setListenerSmoothed(Vec3 targetPos, Vec3 targetFwd, Vec3 up, float dt){
+        com.hollow.core.Vec3 sp = new com.hollow.core.Vec3();
+        com.hollow.core.Vec3 sf = new com.hollow.core.Vec3();
+        listenerSmoother.update(targetPos, targetFwd, dt, sp, sf);
+        setListener(sp, sf, up);
+    }
 
     /** update listener frame for 3D panning/attenuation */
     public void setListener(Vec3 pos, Vec3 forward, Vec3 up){
@@ -67,7 +118,17 @@ public final class AudioEngine {
         Handle h = new Handle();
         if(assets == null){ h.playing = false; return h; }
         AudioClipData clip;
-        try { clip = assets.audio(path); }
+        try {
+            if(clipCache != null){                       // AUD-027 LRU decode cache
+                clip = clipCache.get(path);
+                if(clip == null){
+                    clip = assets.audio(path);
+                    if(clip != null && clip.pcm != null && clip.pcm.length > 0) clipCache.put(path, clip);
+                }
+            } else {
+                clip = assets.audio(path);
+            }
+        }
         catch(Exception e){ Log.w("Audio", "play: clip load failed " + path + ": " + e.getMessage()); h.playing = false; return h; }
         if(clip == null || clip.pcm == null || clip.pcm.length == 0){
             Log.w("Audio", "play: empty/missing clip " + path);
@@ -114,6 +175,7 @@ public final class AudioEngine {
     public void update(float dt){
         if(dt <= 0) return;
         updateMusicFade(dt);
+        reverbZones.update(this, listenerPos, dt);        // AUD-024 zone blend
         int frames = Math.round(sampleRate * dt);
         frames = MathX.clamp(frames, 1, sampleRate);
         // retire dead voices first (Handle.stop() kills voice next update)
@@ -137,9 +199,11 @@ public final class AudioEngine {
         if(mix.length < needed) mix = new short[Math.max(needed, mix.length * 2)];
         if(fMix.length < needed) fMix = new float[Math.max(needed, fMix.length * 2)];
         if(fWet.length < needed) fWet = new float[Math.max(needed, fWet.length * 2)];
+        if(fDelay.length < needed) fDelay = new float[Math.max(needed, fDelay.length * 2)];
         java.util.Arrays.fill(mix, 0, needed, (short) 0);
         java.util.Arrays.fill(fMix, 0, needed, 0f);
         java.util.Arrays.fill(fWet, 0, needed, 0f);
+        java.util.Arrays.fill(fDelay, 0, needed, 0f);
         boolean voiceActive = false;
         for(int i = voices.size() - 1; i >= 0; i--){
             Voice v = voices.get(i);
@@ -149,17 +213,24 @@ public final class AudioEngine {
         }
         // ---- v2.0 post chain: reverb -> EQ -> compressor -> ducking ----
         if(fxEnabled){
-            reverb.process(fWet, frames);
+            if(convolutionReverb && convolver.isReady()){
+                // AUD-019: mono-sum wet through the FFT convolver (partitioned overlap-add)
+                if(convWetMono.length < frames) convWetMono = new float[frames];
+                for(int s = 0; s < frames; s++) convWetMono[s] = fWet[s * 2] + fWet[s * 2 + 1];
+                convolver.process(convWetMono, convWetMono, frames);
+                for(int s = 0; s < frames; s++){ fWet[s * 2] = convWetMono[s]; fWet[s * 2 + 1] = convWetMono[s]; }
+            } else {
+                reverb.process(fWet, frames);
+            }
             float musicGain = ducker.update(voiceActive, sampleRate);
             for(int s = 0; s < needed; s++) fMix[s] += fWet[s];
+            delay.process(fMix, frames);                 // AUD-029 send bus
             eq.process(fMix, frames);
             compressor.process(fMix, frames, sampleRate);
-            // apply ducking retroactively to music contributions is impractical; instead
-            // musicGain scales the next block — for the current block we scale music voices
-            // already happened; ducking applies forward from next update (documented)
             nextMusicGain = busVolume[BUS_MUSIC] * musicGain;
         } else {
             for(int s = 0; s < needed; s++) fMix[s] += fWet[s];
+            delay.process(fMix, frames);
             nextMusicGain = busVolume[BUS_MUSIC];
         }
         for(int s = 0; s < needed; s++){
@@ -195,7 +266,7 @@ public final class AudioEngine {
         }
     }
 
-    /** mix one voice block into float master + reverb send; per-block gain/pan */
+    /** mix one voice block into float master + reverb send; v2.3: doppler + occlusion + HRTF + loop crossfade */
     private void mixVoice(Voice v, int frames, float[] dst, float[] wet){
         AudioClipData c = v.clip;
         int ch = c.channels == 2 ? 2 : 1;
@@ -209,6 +280,8 @@ public final class AudioEngine {
         float send = v.bus != BUS_MASTER ? busReverbSend[Math.min(v.bus, busReverbSend.length - 1)] : 0f;
 
         float gl = 1f, gr = 1f;
+        float pitchMul = 1f;
+        float occlusion = v.occlusion;
         if(v.p.spatial){
             Vec3 rel = tmpRel.set(v.position).sub(listenerPos);
             float dist = rel.len();
@@ -217,11 +290,28 @@ public final class AudioEngine {
             // equal-power pan: project relative direction on listener right axis
             Vec3 right = tmpRight.set(listenerForward).cross(listenerUp).norm();
             float pan = dist > 1e-4f ? MathX.clamp(rel.norm().dot(right), -1f, 1f) : 0f;
-            float theta = (pan * 0.5f + 0.5f) * (float) (Math.PI * 0.5);
-            gl = (float) Math.cos(theta) * atten;
-            gr = (float) Math.sin(theta) * atten;
+            if(hrtfEnabled){
+                // AUD-018: HRTF-lite per-sample panner runs below (block-level prep here)
+                gl = atten; gr = atten;
+                v.hrtfAz = pan;
+                v.hrtfDist = dist;
+                v.hrtfActive = true;
+            } else {
+                v.hrtfActive = false;
+                float theta = (pan * 0.5f + 0.5f) * (float) (Math.PI * 0.5);
+                gl = (float) Math.cos(theta) * atten;
+                gr = (float) Math.sin(theta) * atten;
+            }
+            // AUD-017 doppler: relative-velocity pitch shift
+            pitchMul = doppler.pitchFor(v.position, v.velocity, listenerPos, listenerVelocity);
+        } else {
+            v.hrtfActive = false;
         }
         float lgain = gain * gl, rgain = gain * gr;
+        double sstep = step * pitchMul;
+        // AUD-028 seamless loop crossfade window (in clip frames)
+        int fadeFrames = v.p.loopCrossfadeSec > 0f ? (int)(v.p.loopCrossfadeSec * c.sampleRate) : 0;
+        fadeFrames = Math.min(fadeFrames, Math.max(1, totalFrames / 8));
 
         for(int f = 0; f < frames; f++){
             if(v.cursor >= totalFrames){
@@ -240,16 +330,48 @@ public final class AudioEngine {
             }
             float l = (sl + (sl1 - sl) * frac) * lgain;
             float r = (sr + (sr1 - sr) * frac) * rgain;
+            // AUD-028: crossfade the loop seam — blend the tail with the head
+            if(v.p.loop && fadeFrames > 0 && v.cursor > totalFrames - fadeFrames){
+                float t = (float)((v.cursor - (totalFrames - fadeFrames)) / fadeFrames);
+                int j0 = i0 < fadeFrames ? i0 : i0 - fadeFrames;
+                if(j0 < 0) j0 = 0;
+                if(ch == 1){
+                    l = lerpF(l, c.pcm[j0] * lgain, t);
+                    r = lerpF(r, c.pcm[j0] * rgain, t);
+                } else {
+                    l = lerpF(l, c.pcm[j0 * 2] * lgain, t);
+                    r = lerpF(r, c.pcm[j0 * 2 + 1] * rgain, t);
+                }
+            }
+            // AUD-018: HRTF-lite replaces static pan (ITD+ILD in the Binaural block)
+            if(v.hrtfActive){
+                binauralScratch[0] = l; binauralScratch[1] = r;
+                binaural.process((l + r) * 0.5f, v.hrtfAz, v.hrtfDist, binauralScratch);
+                l = binauralScratch[0]; r = binauralScratch[1];
+            }
             int mi = f * 2;
             dst[mi] += l;
             dst[mi + 1] += r;
+            // AUD-029: per-voice delay send
+            float ds = v.p.delaySend;
+            if(ds > 0f){
+                fDelay[mi] += l * ds;
+                fDelay[mi + 1] += r * ds;
+            }
             if(send > 0f){
                 wet[mi] += l * send;
                 wet[mi + 1] += r * send;
             }
-            v.cursor += step;
+            v.cursor += sstep;
+        }
+        // AUD-023: wall occlusion — lowpass + gain on this voice's contribution
+        if(occlusion > 0.01f){
+            v.occlFilter.process(occlusion, dst, frames, sampleRate);
         }
     }
+
+    private static float lerpF(float a, float b, float t){ return a + (b - a) * t; }
+    private final float[] binauralScratch = new float[2];   // AUD-018 per-sample out
 
     // ---------------- handle + params (public API identical to stub) ----------------
 
@@ -259,6 +381,15 @@ public final class AudioEngine {
         public void stop(){ playing = false; if(voice != null) voice.dead = true; }
         public void setVolume(float v){ if(voice != null) voice.baseVolume = Math.max(0f, v); }
         public boolean isPlaying(){ return playing && (voice == null || !voice.dead); }
+        /** v2.3 AUD-030: playback position in seconds (subtitle/dialogue sync) */
+        public double timeSeconds(){
+            if(voice == null || voice.clip == null) return 0;
+            return voice.cursor / Math.max(1, voice.clip.sampleRate);
+        }
+        /** v2.3 AUD-023: set wall occlusion 0..1 (AudioSource updates per tick) */
+        public void setOcclusion(float o){ if(voice != null) voice.occlusion = MathX23.clamp(o, 0f, 1f); }
+        /** v2.3 AUD-017: live velocity for doppler (AudioSource refreshes) */
+        public void setVelocity(com.hollow.core.Vec3 vel){ if(voice != null && vel != null) voice.velocity.set(vel); }
     }
 
     public static final class PlayParams {
@@ -268,6 +399,11 @@ public final class AudioEngine {
         public boolean spatial = false;
         public final Vec3 position = new Vec3();
         public float minDist = 1f, maxDist = 25f, rolloff = 1.4f;
+        // v2.3 (Batch 3)
+        public float occlusion = 0f;                 // AUD-023 wall block 0..1
+        public float loopCrossfadeSec = 0f;          // AUD-028 seamless loop seam
+        public float delaySend = 0f;                 // AUD-029 custom send amount
+        public final Vec3 velocity = new Vec3();     // AUD-017 doppler source velocity
 
         public static PlayParams defaults(){ return new PlayParams(); }
         public PlayParams bus(int b){ bus = b; return this; }
@@ -275,6 +411,14 @@ public final class AudioEngine {
         public PlayParams loop(){ loop = true; return this; }
         public PlayParams at(Vec3 pos){ spatial = true; position.set(pos); return this; }
         public PlayParams range(float min, float max){ minDist = min; maxDist = max; return this; }
+        public PlayParams occlusion(float o){ occlusion = o; return this; }
+        public PlayParams loopCrossfade(float sec){ loopCrossfadeSec = sec; return this; }
+        public PlayParams delaySend(float amt){ delaySend = amt; return this; }
+        public PlayParams velocity(Vec3 v){ velocity.set(v); return this; }
+    }
+
+    static final class MathX23 {
+        static float clamp(float v, float a, float b){ return v < a ? a : (v > b ? b : v); }
     }
 
     /** one playing clip instance */
@@ -288,6 +432,12 @@ public final class AudioEngine {
         final Vec3 position = new Vec3();   // live 3D position (refreshed by AudioSource)
         boolean dead;
         boolean finished;
+        // v2.3 per-voice state
+        float occlusion = 0f;
+        final Vec3 velocity = new Vec3();
+        boolean hrtfActive;
+        float hrtfAz, hrtfDist, hrtfL, hrtfR;
+        final AudioDsp.OcclusionFilter occlFilter = new AudioDsp.OcclusionFilter();
     }
 
     // ==================================================================

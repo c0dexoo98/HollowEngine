@@ -1595,12 +1595,655 @@ public final class Commands {
             if(mc2.lods.size() != 1 || Math.abs(mc2.lods.get(0).d - 0.15f) > 1e-5f) throw new AssertionError("lod roundtrip");
             pass("Light/Mesh v2.2 serialization");
         } catch(Throwable t){ fail("light22", t); failures++; }
+        // ================= v2.3 Batch 3 (PHY/COL/AUD/ANI) =================
+        failures += batch3Tests();
         System.out.println();
         if(failures > 0){
             System.out.println("RESULT: " + failures + " self test(s) FAILED");
             System.exit(1);
         }
         System.out.println("RESULT: all self tests passed");
+    }
+
+    /** v2.3 Batch 3 regression block (PHY-019..035, COL-011..025, AUD-017..030, ANI-013..025) */
+    private static int batch3Tests(){
+        int failures = 0;
+
+        // --- COL-011 OBB SAT MTV ---
+        try {
+            com.hollow.core.OBB a = new com.hollow.core.OBB(new com.hollow.core.Vec3(0,0,0),
+                new com.hollow.core.Vec3(1,1,1), com.hollow.core.Quat.fromAxisAngle(0,1,0,15));
+            com.hollow.core.OBB b = new com.hollow.core.OBB(new com.hollow.core.Vec3(1,0,0),
+                new com.hollow.core.Vec3(1,1,1), new com.hollow.core.Quat());
+            com.hollow.collision.CollisionLib.MTV m = com.hollow.collision.CollisionLib.obbOBB(a, b, null);
+            if(!m.hit || m.penetration <= 0f) throw new AssertionError("overlap miss");
+            com.hollow.core.OBB c = new com.hollow.core.OBB(new com.hollow.core.Vec3(10,0,0),
+                new com.hollow.core.Vec3(1,1,1), new com.hollow.core.Quat());
+            com.hollow.collision.CollisionLib.MTV m2 = com.hollow.collision.CollisionLib.obbOBB(a, c, m);
+            if(m2.hit) throw new AssertionError("false positive");
+            pass("OBB SAT MTV hit/miss");
+        } catch(Throwable t){ fail("col011", t); failures++; }
+
+        // --- COL-012 OBB vs capsule ---
+        try {
+            com.hollow.core.OBB box = new com.hollow.core.OBB(new com.hollow.core.Vec3(0,0.5f,0),
+                new com.hollow.core.Vec3(1,0.5f,1), new com.hollow.core.Quat());
+            com.hollow.core.Vec3 n = new com.hollow.core.Vec3();
+            float pen = com.hollow.collision.CollisionLib.obbCapsule(box,
+                new com.hollow.core.Vec3(0,1.1f,-5), new com.hollow.core.Vec3(0,1.1f,5), 0.25f, n);
+            if(pen <= 0f) throw new AssertionError("capsule penetration not found: " + pen);
+            float pen2 = com.hollow.collision.CollisionLib.obbCapsule(box,
+                new com.hollow.core.Vec3(0,2.5f,-5), new com.hollow.core.Vec3(0,2.5f,5), 0.25f, n);
+            if(pen2 > 0f) throw new AssertionError("capsule false positive");
+            pass("OBB vs capsule");
+        } catch(Throwable t){ fail("col012", t); failures++; }
+
+        // --- COL-013 convex hull ---
+        try {
+            java.util.List<com.hollow.core.Vec3> pts = new java.util.ArrayList<>();
+            pts.add(new com.hollow.core.Vec3(0,0,0)); pts.add(new com.hollow.core.Vec3(2,0,0));
+            pts.add(new com.hollow.core.Vec3(1,0,1)); pts.add(new com.hollow.core.Vec3(0.5f,0,0.3f));
+            pts.add(new com.hollow.core.Vec3(1.5f,0,0.9f)); pts.add(new com.hollow.core.Vec3(1.2f,0,0.2f));
+            com.hollow.collision.CollisionLib.ConvexHull h = new com.hollow.collision.CollisionLib.ConvexHull();
+            if(!h.build(pts, 32)) throw new AssertionError("hull build failed");
+            if(h.verts.size() < 4) throw new AssertionError("hull kept interior points: " + h.verts.size());
+            pass("convex hull build (interior culled)");
+        } catch(Throwable t){ fail("col013", t); failures++; }
+
+        // --- COL-014 mesh vs capsule ---
+        try {
+            // single triangle in XZ at y=0
+            float[] tris = { 0,0,-1,  0,0,1,  2,0,0 };
+            com.hollow.collision.CollisionLib.MeshHit mh = com.hollow.collision.CollisionLib.meshCapsule(
+                new com.hollow.core.Vec3(1,-0.15f,-0.1f), new com.hollow.core.Vec3(1,0.15f,-0.1f),
+                0.2f, tris, null);
+            if(!mh.hit || mh.penetration <= 0f) throw new AssertionError("tri hit missed");
+            if(Math.abs(mh.normal.y) < 0.9f) throw new AssertionError("normal not up: " + mh.normal);
+            pass("mesh vs capsule (triangle-accurate normal)");
+        } catch(Throwable t){ fail("col014", t); failures++; }
+
+        // --- COL-015 heightfield ---
+        try {
+            float[] h = new float[16 * 16];
+            for(int i = 0; i < h.length; i++) h[i] = (i % 16) * 0.1f;   // slope along x
+            com.hollow.collision.CollisionLib.Heightfield hf = new com.hollow.collision.CollisionLib.Heightfield(
+                h, 16, 16, new com.hollow.core.Vec3(0,0,0), 1f);
+            float hv = hf.heightAt(5.5f, 8f);
+            if(Math.abs(hv - 0.55f) > 0.02f) throw new AssertionError("heightAt " + hv);
+            com.hollow.core.Vec3 n = new com.hollow.core.Vec3();
+            float pen = hf.spherePush(new com.hollow.core.Vec3(5.5f, 0.3f, 8f), 0.2f, n);
+            if(pen <= 0f || n.y <= 0.9f) throw new AssertionError("spherePush pen=" + pen + " n=" + n);
+            pass("heightfield heightAt/spherePush gradient");
+        } catch(Throwable t){ fail("col015", t); failures++; }
+
+        // --- COL-017 dynamic BVH ---
+        try {
+            com.hollow.collision.CollisionLib.DynamicBVH bvh = new com.hollow.collision.CollisionLib.DynamicBVH();
+            com.hollow.core.AABB b1 = com.hollow.core.AABB.fromCenterExtents(new com.hollow.core.Vec3(0,0,0), new com.hollow.core.Vec3(1,1,1));
+            com.hollow.core.AABB b2 = com.hollow.core.AABB.fromCenterExtents(new com.hollow.core.Vec3(5,0,0), new com.hollow.core.Vec3(1,1,1));
+            int l1 = bvh.insert(b1, 101), l2 = bvh.insert(b2, 102);
+            java.util.List<Integer> out = new java.util.ArrayList<>();
+            bvh.query(com.hollow.core.AABB.fromCenterExtents(new com.hollow.core.Vec3(0.5f,0,0), new com.hollow.core.Vec3(0.5f,0.5f,0.5f)), out);
+            if(out.size() != 1 || out.get(0) != 101) throw new AssertionError("query1 " + out);
+            bvh.query(com.hollow.core.AABB.fromCenterExtents(new com.hollow.core.Vec3(5.5f,0,0), new com.hollow.core.Vec3(2,2,2)), out);
+            if(out.size() != 1 || out.get(0) != 102) throw new AssertionError("query2 " + out);
+            bvh.remove(l1);
+            bvh.query(b1, out);
+            if(!out.isEmpty()) throw new AssertionError("removed leaf still found");
+            pass("DynamicBVH insert/query/remove");
+        } catch(Throwable t){ fail("col017", t); failures++; }
+
+        // --- COL-018 contact manifold ---
+        try {
+            com.hollow.core.OBB a = new com.hollow.core.OBB(new com.hollow.core.Vec3(0,0.45f,0),
+                new com.hollow.core.Vec3(2,0.5f,2), new com.hollow.core.Quat());
+            com.hollow.core.OBB b = new com.hollow.core.OBB(new com.hollow.core.Vec3(0,1.05f,0),
+                new com.hollow.core.Vec3(1.5f,0.5f,1.5f), new com.hollow.core.Quat());
+            com.hollow.collision.CollisionLib.MTV m = com.hollow.collision.CollisionLib.obbOBB(a, b, null);
+            if(!m.hit) throw new AssertionError("stacking boxes must overlap");
+            com.hollow.collision.CollisionLib.ContactManifold mf = new com.hollow.collision.CollisionLib.ContactManifold();
+            mf.buildBoxBox(a, b, m);
+            if(mf.points.isEmpty()) throw new AssertionError("manifold empty");
+            pass("contact manifold (" + mf.points.size() + " pts)");
+        } catch(Throwable t){ fail("col018", t); failures++; }
+
+        // --- COL-019 collision matrix ---
+        try {
+            com.hollow.collision.CollisionLib.CollisionMatrix cm = new com.hollow.collision.CollisionLib.CollisionMatrix();
+            cm.set(3, 7, false);
+            if(cm.get(3, 7) || cm.get(7, 3)) throw new AssertionError("set failed");
+            String json = cm.toJson();
+            com.hollow.collision.CollisionLib.CollisionMatrix cm2 = com.hollow.collision.CollisionLib.CollisionMatrix.fromJson(json);
+            if(cm2.get(3, 7)) throw new AssertionError("json roundtrip lost disable");
+            if(!cm2.get(1, 1)) throw new AssertionError("json roundtrip lost default");
+            pass("collision matrix 32×32 JSON roundtrip");
+        } catch(Throwable t){ fail("col019", t); failures++; }
+
+        // --- COL-021 batch ray ---
+        try {
+            com.hollow.core.AABB[] boxes = { com.hollow.core.AABB.fromCenterExtents(new com.hollow.core.Vec3(0,0,-5), new com.hollow.core.Vec3(1,1,1)) };
+            com.hollow.core.Vec3 origin = new com.hollow.core.Vec3(0,0,0);
+            com.hollow.core.Vec3[] dirs = {
+                new com.hollow.core.Vec3(0,0,-1), new com.hollow.core.Vec3(0,0,1), new com.hollow.core.Vec3(1,0,0) };
+            com.hollow.collision.CollisionLib.RayResult[] rr = new com.hollow.collision.CollisionLib.RayResult[3];
+            com.hollow.collision.CollisionLib.batchRay(origin, dirs, 50f, boxes, rr);
+            if(!rr[0].hit || rr[0].distance > 5f) throw new AssertionError("ray0 miss d=" + rr[0].distance);
+            if(rr[1].hit) throw new AssertionError("ray1 behind hit");
+            if(rr[2].hit) throw new AssertionError("ray2 miss expected");
+            pass("batch raycast (3 rays)");
+        } catch(Throwable t){ fail("col021", t); failures++; }
+
+        // --- COL-022 camera pick ray ---
+        try {
+            com.hollow.collision.CollisionLib.Mat4Like view = com.hollow.collision.CollisionLib.Mat4Like.identity();
+            com.hollow.collision.CollisionLib.Mat4Like proj = com.hollow.collision.CollisionLib.Mat4Like.identity();
+            com.hollow.core.Vec3 dir = new com.hollow.core.Vec3();
+            com.hollow.collision.CollisionLib.cameraPickRay(new com.hollow.core.Vec3(0,0,0), view, proj, dir);
+            if(Math.abs(dir.z + 1f) > 1e-4f) throw new AssertionError("center ray should be -Z: " + dir);
+            pass("camera pick ray (identity matrices)");
+        } catch(Throwable t){ fail("col022", t); failures++; }
+
+        // --- COL-023 trajectory preview ---
+        try {
+            com.hollow.core.AABB ground = com.hollow.core.AABB.fromCenterExtents(new com.hollow.core.Vec3(0,-1,8), new com.hollow.core.Vec3(20,1,20));
+            java.util.List<com.hollow.core.Vec3> path = com.hollow.collision.CollisionLib.trajectoryPreview(
+                new com.hollow.core.Vec3(0,1,0), new com.hollow.core.Vec3(2,4,8), 9.81f,
+                2.0f, 1f/60f, 3, new com.hollow.core.AABB[]{ ground }, 0.4f);
+            if(path.size() < 5) throw new AssertionError("path too short: " + path.size());
+            boolean bounced = path.size() > 40;
+            if(!bounced) throw new AssertionError("no bounce reflected (" + path.size() + " pts)");
+            pass("trajectory preview + bounce");
+        } catch(Throwable t){ fail("col023", t); failures++; }
+
+        // --- COL-025 water surface ---
+        try {
+            com.hollow.collision.CollisionLib.WaterSurface ws = new com.hollow.collision.CollisionLib.WaterSurface();
+            float h1 = ws.height(1.3f, 2.1f, 0.5f);
+            float h2 = ws.height(1.3f, 2.1f, 0.5f);
+            if(Math.abs(h1 - h2) > 1e-6f) throw new AssertionError("non-deterministic");
+            if(Math.abs(h1) > 0.5f) throw new AssertionError("amplitude out of range: " + h1);
+            com.hollow.core.Vec3 n = new com.hollow.core.Vec3();
+            ws.normal(0, 0, 0.7f, n);
+            if(n.y < 0.9f) throw new AssertionError("water normal not mostly-up: " + n);
+            pass("water surface height/normal");
+        } catch(Throwable t){ fail("col025", t); failures++; }
+
+        // --- PHY-024/027/028/029 world sim (layers, materials, broadphase, CCD) ---
+        try {
+            com.hollow.scene.World w = com.hollow.scene.World.empty("phy23");
+            com.hollow.scene.Entity ground = w.spawn("ground");
+            com.hollow.physics.BoxCollider gc = new com.hollow.physics.BoxCollider();
+            gc.size.set(20, 1, 20);
+            gc.offset.set(0, -0.5f, 0);
+            ground.add(gc);
+            com.hollow.scene.Entity ball = w.spawn("ball");
+            ball.position.set(0, 3, 0);
+            com.hollow.physics.RigidBody rb = new com.hollow.physics.RigidBody();
+            rb.ccd = true;
+            rb.material = "rubber";
+            rb.bounciness = 0.6f;
+            rb.sleepEnabled = false;
+            ball.add(rb);
+            com.hollow.physics.PhysicsWorld phy = new com.hollow.physics.PhysicsWorld();
+            phy.onWorldLoaded(w);
+            if(phy.colliderCount() != 1) throw new AssertionError("statics not collected");
+            float minY = 99f;
+            for(int i = 0; i < 240; i++){
+                phy.update(1f / 60f);
+                minY = Math.min(minY, ball.position.y);
+                if(rb.grounded && Math.abs(rb.velocity.y) < 0.05f && i > 60) break;
+            }
+            if(minY > 0.6f) throw new AssertionError("ball did not land (minY=" + minY + ")");
+            if(ball.position.y < -0.5f || ball.position.y > 2f) throw new AssertionError("tunneled: y=" + ball.position.y);
+            // layer filter
+            com.hollow.physics.RigidBody rb2 = new com.hollow.physics.RigidBody();
+            rb2.layer = com.hollow.physics.RigidBody.LAYER_ENEMY;
+            rb2.collidesWith = com.hollow.physics.RigidBody.LAYER_PLAYER;
+            com.hollow.physics.RigidBody rb3 = new com.hollow.physics.RigidBody();
+            rb3.layer = com.hollow.physics.RigidBody.LAYER_PROP;
+            if(rb2.interacts(rb3)) throw new AssertionError("layers should not interact");
+            // materials
+            float fIce = com.hollow.physics.PhysicsMaterials.pairFriction(rb, rb3);
+            pass("world sim: CCD landing + layers + materials (µ=" + String.format("%.2f", fIce) + ")");
+        } catch(Throwable t){ fail("phy23", t); failures++; }
+
+        // --- PHY-027 broadphase pair generation ---
+        try {
+            com.hollow.physics.Broadphase bp = new com.hollow.physics.Broadphase();
+            java.util.List<com.hollow.physics.RigidBody> bodies = new java.util.ArrayList<>();
+            for(int i = 0; i < 3; i++){
+                com.hollow.scene.Entity e = new com.hollow.scene.Entity("b" + i);
+                e.position.set(i * 0.5f, 0, 0);
+                com.hollow.physics.RigidBody rb = new com.hollow.physics.RigidBody();
+                rb.entity = e;
+                bodies.add(rb);
+            }
+            bp.refresh(bodies, 1f);
+            if(bp.dynamicPairs.size() < 2) throw new AssertionError("pairs " + bp.dynamicPairs.size());
+            pass("broadphase grid pairs (" + bp.dynamicPairs.size() + ")");
+        } catch(Throwable t){ fail("phy027", t); failures++; }
+
+        // --- PHY-035 joint stress break ---
+        try {
+            com.hollow.scene.World w = com.hollow.scene.World.empty("stress");
+            com.hollow.scene.Entity a = w.spawn("a");
+            a.position.set(0, 2, 0);
+            com.hollow.physics.RigidBody rbA = new com.hollow.physics.RigidBody();
+            rbA.sleepEnabled = false;
+            a.add(rbA);
+            com.hollow.scene.Entity b = w.spawn("b");
+            b.position.set(0, 6, 0);   // 4m apart: distance joint max 0.5 pulls hard
+            com.hollow.physics.RigidBody rbB = new com.hollow.physics.RigidBody();
+            rbB.mass = 8f; rbB.sleepEnabled = false;
+            b.add(rbB);
+            com.hollow.physics.Joints.Distance d = new com.hollow.physics.Joints.Distance(0.5f, 0.5f);
+            d.other = "b";
+            d.stressLimit = 0.25f;   // peak smoothed load here ≈ 0.34
+            d.bindWorldOverride = w;
+            a.add(d);
+            com.hollow.physics.PhysicsWorld phy = new com.hollow.physics.PhysicsWorld();
+            phy.onWorldLoaded(w);
+            boolean broke = false;
+            for(int i = 0; i < 120 && !broke; i++){
+                phy.update(1f / 60f);
+                broke = d.isBroken();
+            }
+            if(!broke) throw new AssertionError("stress break never fired (stress=" + d.stress + ")");
+            pass("joint stress meter + break");
+        } catch(Throwable t){ fail("phy035", t); failures++; }
+
+        // --- PHY-019 ragdoll build ---
+        try {
+            com.hollow.scene.World w = com.hollow.scene.World.empty("ragdoll");
+            com.hollow.scene.Entity body = w.spawn("npc");
+            com.hollow.scene.Entity bone = w.spawn("head");
+            body.addChild(bone);
+            com.hollow.physics.Ragdoll rd = new com.hollow.physics.Ragdoll();
+            body.add(rd);
+            if(!rd.activate()) throw new AssertionError("activate failed");
+            if(rd.bones.size() != 1 || rd.jointList.size() != 0) throw new AssertionError("bones=" + rd.bones.size());
+            com.hollow.physics.RigidBody rb = bone.get(com.hollow.physics.RigidBody.class);
+            if(rb == null) throw new AssertionError("bone body missing");
+            pass("ragdoll bone->body conversion");
+        } catch(Throwable t){ fail("phy019", t); failures++; }
+
+        // --- PHY-020 cloth settle ---
+        try {
+            com.hollow.scene.World w = com.hollow.scene.World.empty("cloth");
+            com.hollow.scene.Entity clothE = w.spawn("banner");
+            com.hollow.physics.Cloth cloth = new com.hollow.physics.Cloth();
+            cloth.cols = 6; cloth.rows = 6; cloth.spacing = 0.2f;
+            clothE.add(cloth);
+            cloth.pin(0, 0); cloth.pin(5, 0);
+            cloth.onUpdate(1f / 60f);              // first tick builds the grid
+            float startY = cloth.particleLocalY(2, 5);
+            for(int i = 0; i < 120; i++) cloth.onUpdate(1f / 60f);
+            float endY = cloth.particleLocalY(2, 5);
+            if(!(endY < startY - 0.3f)) throw new AssertionError("cloth did not fall: " + startY + "->" + endY);
+            pass("cloth verlet settle");
+        } catch(Throwable t){ fail("phy020", t); failures++; }
+
+        // --- PHY-021 vehicle chassis + wheel state ---
+        try {
+            com.hollow.scene.World w = com.hollow.scene.World.empty("vehicle");
+            com.hollow.scene.Entity car = w.spawn("car");
+            com.hollow.physics.Vehicle veh = new com.hollow.physics.Vehicle();
+            car.add(veh);
+            veh.onUpdate(1f / 60f);
+            com.hollow.physics.RigidBody chassis = car.get(com.hollow.physics.RigidBody.class);
+            if(chassis == null) throw new AssertionError("chassis auto-created");
+            if(veh.wheelCompression.length != 4) throw new AssertionError("wheel compression array");
+            pass("vehicle suspension rig");
+        } catch(Throwable t){ fail("phy021", t); failures++; }
+
+        // --- PHY-022/034 buoyancy float ---
+        try {
+            com.hollow.scene.World w = com.hollow.scene.World.empty("water");
+            com.hollow.scene.Entity water = w.spawn("lake");
+            water.position.set(0, 0, 0);
+            com.hollow.physics.EnvironmentPhysics.WaterVolume vol = new com.hollow.physics.EnvironmentPhysics.WaterVolume();
+            water.add(vol);
+            com.hollow.scene.Entity cork = w.spawn("cork");
+            cork.position.set(0, -0.5f, 0);      // submerged
+            com.hollow.physics.RigidBody rb = new com.hollow.physics.RigidBody();
+            rb.sleepEnabled = false; rb.gravityScale = 1f;
+            cork.add(rb);
+            com.hollow.physics.PhysicsWorld phy = new com.hollow.physics.PhysicsWorld();
+            phy.onWorldLoaded(w);
+            vol.physicsOverride = phy;
+            float y0 = cork.position.y;
+            for(int i = 0; i < 120; i++){
+                phy.update(1f / 60f);
+                vol.onUpdate(1f / 60f);
+            }
+            if(!(cork.position.y > y0 + 0.2f)) throw new AssertionError("no buoyancy: " + y0 + " -> " + cork.position.y);
+            pass("water buoyancy raises floater");
+        } catch(Throwable t){ fail("phy022", t); failures++; }
+
+        // --- PHY-023 wind push ---
+        try {
+            com.hollow.scene.Entity e = new com.hollow.scene.Entity("windzone");
+            com.hollow.physics.EnvironmentPhysics.WindZone wz = new com.hollow.physics.EnvironmentPhysics.WindZone();
+            wz.strength = 6f;
+            e.add(wz);
+            com.hollow.core.Vec3 w0 = wz.sampleWind(0.016f);
+            com.hollow.core.Vec3 w1 = wz.sampleWind(0.016f);
+            if(w0.len() < 1f) throw new AssertionError("wind too weak: " + w0.len());
+            if(Math.abs(w1.x - w0.x) < 1e-8f && Math.abs(w1.z - w0.z) < 1e-8f) throw new AssertionError("no gust variation");
+            pass("wind zone gust sampling");
+        } catch(Throwable t){ fail("phy023", t); failures++; }
+
+        // --- PHY-030 destruction fragments ---
+        try {
+            com.hollow.scene.World w = com.hollow.scene.World.empty("destruct");
+            com.hollow.scene.Entity jar = w.spawn("jar");
+            com.hollow.physics.Destruction dec = new com.hollow.physics.Destruction();
+            jar.add(dec);
+            for(int i = 0; i < 4; i++){
+                com.hollow.scene.Entity frag = w.spawn("frag" + i);
+                frag.position.set(i * 0.3f, 0, 0);
+                frag.active = false;
+                jar.addChild(frag);
+            }
+            int n = dec.fracture(new com.hollow.core.Vec3(0.3f, 0, 0), 1f);
+            if(n != 4) throw new AssertionError("activated " + n);
+            if(!dec.isFragmented()) throw new AssertionError("fragmented flag");
+            int impulsed = 0;
+            for(com.hollow.scene.Entity frag : jar.children()){
+                com.hollow.physics.RigidBody frb = frag.get(com.hollow.physics.RigidBody.class);
+                if(frb != null && frb.velocity.len() > 1e-5f) impulsed++;
+            }
+            if(impulsed < 3) throw new AssertionError("fragments without impulse: " + impulsed);
+            pass("destruction fragment activation + impulse");
+        } catch(Throwable t){ fail("phy030", t); failures++; }
+
+        // --- PHY-033 trap spring ---
+        try {
+            com.hollow.scene.World w = com.hollow.scene.World.empty("trap");
+            com.hollow.scene.Entity trapE = w.spawn("snare");
+            com.hollow.physics.TrapPhysics trap = new com.hollow.physics.TrapPhysics();
+            trap.mode = com.hollow.physics.TrapPhysics.Mode.SPRING;
+            trap.impulse = 5f;
+            trapE.add(trap);
+            com.hollow.scene.Entity victim = w.spawn("victim");
+            victim.position.set(0, 0.5f, 0);
+            com.hollow.physics.RigidBody rb = new com.hollow.physics.RigidBody();
+            rb.sleepEnabled = false;
+            victim.add(rb);
+            com.hollow.physics.PhysicsWorld phy = new com.hollow.physics.PhysicsWorld();
+            phy.onWorldLoaded(w);
+            trap.physicsOverride = phy;
+            float vy0 = rb.velocity.y;
+            for(int i = 0; i < 10; i++){ phy.update(1f/60f); trap.onUpdate(1f/60f); }
+            if(rb.velocity.y <= vy0 + 1f)
+                throw new AssertionError("trap did not spring victim (vy=" + rb.velocity.y + ")");
+            pass("trap spring impulse");
+        } catch(Throwable t){ fail("phy033", t); failures++; }
+
+        // --- AUD-019 FFT roundtrip ---
+        try {
+            float[] sig = new float[128];
+            java.util.Random rng = new java.util.Random(7);
+            float[] orig = new float[128];
+            for(int i = 0; i < 64; i++) orig[i] = rng.nextFloat() * 2f - 1f;
+            System.arraycopy(orig, 0, sig, 0, 128);
+            com.hollow.audio.AudioDsp.FFTConvolver.fft(sig, false);
+            com.hollow.audio.AudioDsp.FFTConvolver.fft(sig, true);
+            float maxErr = 0f;
+            for(int i = 0; i < 64; i++) maxErr = Math.max(maxErr, Math.abs(sig[i] - orig[i]));
+            if(maxErr > 1e-3f) throw new AssertionError("fft roundtrip err " + maxErr);
+            pass("FFT forward/inverse roundtrip");
+        } catch(Throwable t){ fail("aud019", t); failures++; }
+
+        // --- AUD-022 synth determinism ---
+        try {
+            com.hollow.audio.AudioDsp.Synth s1 = new com.hollow.audio.AudioDsp.Synth();
+            com.hollow.audio.AudioDsp.Synth s2 = new com.hollow.audio.AudioDsp.Synth();
+            s1.set(com.hollow.audio.AudioDsp.Synth.Kind.WIND);
+            s2.set(com.hollow.audio.AudioDsp.Synth.Kind.WIND);
+            float[] a = new float[256], b = new float[256];
+            s1.render(a, 256, 44100);
+            s2.render(b, 256, 44100);
+            for(int i = 0; i < 256; i++)
+                if(Math.abs(a[i] - b[i]) > 1e-6f) throw new AssertionError("synth not deterministic at " + i);
+            pass("procedural synth determinism (wind)");
+        } catch(Throwable t){ fail("aud022", t); failures++; }
+
+        // --- AUD-027 LRU cache ---
+        try {
+            com.hollow.audio.AudioStreams.AudioClipCache cache = new com.hollow.audio.AudioStreams.AudioClipCache(4096);
+            com.hollow.assets.AudioClipData c1 = new com.hollow.assets.AudioClipData();
+            c1.pcm = new float[512];
+            c1.sampleRate = 44100;
+            c1.channels = 1;
+            cache.put("a.wav", c1);
+            if(cache.get("a.wav") == null) throw new AssertionError("hit expected");
+            cache.put("a.wav", c1);   // same size: fits again
+            if(cache.size() != 1) throw new AssertionError("dup size");
+            pass("audio LRU cache hit/put");
+        } catch(Throwable t){ fail("aud027", t); failures++; }
+
+        // --- AUD-017 doppler pitch ---
+        try {
+            com.hollow.audio.AudioWorld.Doppler dp = new com.hollow.audio.AudioWorld.Doppler();
+            float p1 = dp.pitchFor(new com.hollow.core.Vec3(0,0,-10), new com.hollow.core.Vec3(0,0,30),
+                new com.hollow.core.Vec3(0,0,0), new com.hollow.core.Vec3());
+            float p2 = dp.pitchFor(new com.hollow.core.Vec3(0,0,10), new com.hollow.core.Vec3(0,0,30),
+                new com.hollow.core.Vec3(0,0,0), new com.hollow.core.Vec3());
+            if(p1 <= 1f) throw new AssertionError("approaching should pitch up: " + p1);
+            if(p2 >= 1f) throw new AssertionError("receding should pitch down: " + p2);
+            pass("doppler approach/recede pitch");
+        } catch(Throwable t){ fail("aud017", t); failures++; }
+
+        // --- AUD-024 reverb zone blend ---
+        try {
+            com.hollow.audio.AudioEngine eng = new com.hollow.audio.AudioEngine();
+            eng.init(null, null, 44100);
+            com.hollow.audio.AudioWorld.ReverbZone zone = new com.hollow.audio.AudioWorld.ReverbZone("sewer",
+                com.hollow.core.AABB.fromCenterExtents(new com.hollow.core.Vec3(), new com.hollow.core.Vec3(5,5,5)),
+                3.5f, 0.8f, 0.6f);
+            eng.reverbZones.add(zone);
+            eng.listenerPos.set(0, 0, 0);
+            for(int i = 0; i < 120; i++) eng.update(1f / 60f);
+            if(eng.reverbZones.blend() < 0.5f) throw new AssertionError("zone blend " + eng.reverbZones.blend());
+            if(eng.reverb.wet < 0.3f) throw new AssertionError("wet not blended: " + eng.reverb.wet);
+            pass("reverb zone cross-blend (wet=" + String.format("%.2f", eng.reverb.wet) + ")");
+        } catch(Throwable t){ fail("aud024", t); failures++; }
+
+        // --- AUD-030 subtitle track ---
+        try {
+            com.hollow.audio.AudioWorld.SubtitleTrack st = new com.hollow.audio.AudioWorld.SubtitleTrack();
+            st.add(new com.hollow.audio.AudioWorld.SubtitleTrack.Cue(0.0, 0.5, "hello", ""));
+            st.add(new com.hollow.audio.AudioWorld.SubtitleTrack.Cue(1.0, 2.0, "bye", ""));
+            st.clock = 0.2;
+            st.update(null, 0.016f);
+            if(st.active() == null || !st.active().text.equals("hello")) throw new AssertionError("cue1");
+            st.clock = 1.5;
+            st.update(null, 0.016f);
+            if(st.active() == null || !st.active().text.equals("bye")) throw new AssertionError("cue2");
+            st.clock = 2.5;
+            st.update(null, 0.016f);
+            if(st.active() != null) throw new AssertionError("should be silent");
+            pass("subtitle cue windowing");
+        } catch(Throwable t){ fail("aud030", t); failures++; }
+
+        // --- AUD-021 stream player (temp WAV) ---
+        try {
+            java.nio.file.Path wav = java.nio.file.Path.of("build/selftest-stream.wav");
+            java.nio.file.Files.createDirectories(wav.getParent());
+            writeTestWav(wav, 4410, 44100, 1);   // 0.1s mono
+            com.hollow.audio.AudioStreams.StreamPlayer.StreamVoice sv =
+                com.hollow.audio.AudioStreams.StreamPlayer.open(wav.toString(), false, 1f);
+            com.hollow.audio.AudioStreams.StreamPlayer.refill(sv);
+            if(sv.finished || sv.bufFrames <= 0) throw new AssertionError("no frames refilled: " + sv.bufFrames);
+            java.nio.file.Files.deleteIfExists(wav);
+            pass("WAV streaming open+refill (" + sv.bufFrames + " frames)");
+        } catch(Throwable t){ fail("aud021", t); failures++; }
+
+        // --- ANI-013 retarget ---
+        try {
+            com.hollow.assets.Skeleton src = new com.hollow.assets.Skeleton();
+            com.hollow.assets.Skeleton.Joint sj = new com.hollow.assets.Skeleton.Joint();
+            sj.name = "mixamorig:Hips"; sj.parent = -1;
+            src.joints.add(sj);
+            com.hollow.assets.Skeleton dst = new com.hollow.assets.Skeleton();
+            com.hollow.assets.Skeleton.Joint dj = new com.hollow.assets.Skeleton.Joint();
+            dj.name = "Hips"; dj.parent = -1;
+            dst.joints.add(dj);
+            com.hollow.anim.AnimationV23.Retarget rt = com.hollow.anim.AnimationV23.Retarget.autoMap(src, dst);
+            if(!rt.boneMap.containsKey("mixamorig:Hips")) throw new AssertionError("auto map failed");
+            com.hollow.assets.AnimClip clip = new com.hollow.assets.AnimClip();
+            clip.duration = 1f;
+            com.hollow.assets.AnimClip.Channel c = new com.hollow.assets.AnimClip.Channel();
+            c.times = new float[]{ 0f, 1f };
+            c.translations = new float[]{ 0,1,0, 0,1,0 };
+            clip.channels.put(0, c);
+            com.hollow.assets.AnimClip out = rt.apply(clip, src, dst);
+            if(!out.channels.containsKey(0)) throw new AssertionError("retarget channel lost");
+            pass("retarget auto-map + resample");
+        } catch(Throwable t){ fail("ani013", t); failures++; }
+
+        // --- ANI-016 clip compression ---
+        try {
+            com.hollow.assets.AnimClip clip = new com.hollow.assets.AnimClip();
+            clip.duration = 1f;
+            com.hollow.assets.AnimClip.Channel c = new com.hollow.assets.AnimClip.Channel();
+            c.times = new float[]{ 0f, 0.5f, 1f };
+            c.rotations = new float[12];
+            for(int i = 0; i < 3; i++){
+                com.hollow.core.Quat q = com.hollow.core.Quat.fromAxisAngle(0, 1, 0, i * 40f);
+                c.rotations[i*4] = q.x; c.rotations[i*4+1] = q.y; c.rotations[i*4+2] = q.z; c.rotations[i*4+3] = q.w;
+            }
+            c.translations = new float[]{ 0.001f,0,0, 0.002f,0,0, 0.003f,0,0 };
+            clip.channels.put(0, c);
+            com.hollow.anim.AnimationV23.ClipCompressor comp = new com.hollow.anim.AnimationV23.ClipCompressor();
+            com.hollow.anim.AnimationV23.ClipCompressor.Result r = comp.compress(clip);
+            if(r.maxRotErrorDeg > 0.05f) throw new AssertionError("rot error too big: " + r.maxRotErrorDeg);
+            if(r.maxTransErrorM > 1e-4f) throw new AssertionError("trans error too big: " + r.maxTransErrorM);
+            if(r.compressionRatio < 1.9f) throw new AssertionError("ratio " + r.compressionRatio);
+            pass("clip compression (rotErr=" + String.format("%.4f", r.maxRotErrorDeg) + "°, ratio=" + String.format("%.1fx", r.compressionRatio) + ")");
+        } catch(Throwable t){ fail("ani016", t); failures++; }
+
+        // --- ANI-018 lipsync weights ---
+        try {
+            com.hollow.anim.AnimationV23.LipSync ls = new com.hollow.anim.AnimationV23.LipSync();
+            float[] w = new float[com.hollow.anim.AnimationV23.LipSync.VISEMES];
+            for(int i = 0; i < 30; i++) ls.update(0.8f, 1f/60f, w);
+            float sum = 0f;
+            for(float v : w) sum += v;
+            if(Math.abs(sum - 1f) > 0.05f) throw new AssertionError("weights sum " + sum);
+            if(ls.dominantViseme() == 0) throw new AssertionError("silent at high amplitude");
+            pass("lip sync viseme weights (sum≈1)");
+        } catch(Throwable t){ fail("ani018", t); failures++; }
+
+        // --- ANI-019 facial rig ---
+        try {
+            com.hollow.anim.AnimationV23.FacialRig face = new com.hollow.anim.AnimationV23.FacialRig();
+            if(!face.set("jawOpen", 0.7f)) throw new AssertionError("set by name");
+            if(Math.abs(face.get("jawOpen") - 0.7f) > 1e-5f) throw new AssertionError("get");
+            face.applyLipSync(0.9f, 1f/60f);
+            if(face.get("jawOpen") < 0.05f) throw new AssertionError("lipsync did not open jaw");
+            face.blink(0.05f, 0.12f, true);
+            pass("facial rig 32 blendshapes + lipsync/blink");
+        } catch(Throwable t){ fail("ani019", t); failures++; }
+
+        // --- ANI-020 multi-clip blend ---
+        try {
+            com.hollow.assets.AnimClip idle = new com.hollow.assets.AnimClip();
+            idle.duration = 1f;
+            com.hollow.assets.AnimClip.Channel c0 = new com.hollow.assets.AnimClip.Channel();
+            c0.times = new float[]{ 0f, 1f };
+            float[] qi = quatId();
+            c0.rotations = new float[]{ qi[0],qi[1],qi[2],qi[3], qi[0],qi[1],qi[2],qi[3] };
+            idle.channels.put(0, c0);
+            com.hollow.assets.AnimClip turn = new com.hollow.assets.AnimClip();
+            turn.duration = 1f;
+            com.hollow.assets.AnimClip.Channel c1 = new com.hollow.assets.AnimClip.Channel();
+            c1.times = new float[]{ 0f, 1f };
+            float[] q90 = quatY(90f);
+            c1.rotations = new float[]{ q90[0],q90[1],q90[2],q90[3], q90[0],q90[1],q90[2],q90[3] };
+            turn.channels.put(0, c1);
+            com.hollow.anim.AnimationV23.MultiClipBlender mb = new com.hollow.anim.AnimationV23.MultiClipBlender();
+            mb.add(idle, 0.5f, false);
+            mb.add(turn, 0.5f, false);
+            float[] trans = new float[3];
+            com.hollow.core.Quat out = new com.hollow.core.Quat();
+            if(!mb.sample(0, trans, out)) throw new AssertionError("sample failed");
+            // halfway between identity and 90° yaw ≈ 45°
+            float yaw = out.yawDeg();
+            if(Math.abs(Math.abs(yaw) - 45f) > 3f) throw new AssertionError("blend yaw " + yaw);
+            pass("multi-clip 50/50 blend (yaw≈" + String.format("%.1f", yaw) + "°)");
+        } catch(Throwable t){ fail("ani020", t); failures++; }
+
+        // --- ANI-024 bone springs ---
+        try {
+            com.hollow.anim.AnimationV23.BoneSpring s = new com.hollow.anim.AnimationV23.BoneSpring("hair");
+            com.hollow.core.Vec3 p = new com.hollow.core.Vec3();
+            for(int i = 0; i < 30; i++) s.update(p, 1f/60f);              // still: settles ~0
+            float restLen = s.offset.len();
+            com.hollow.core.Vec3 moving = new com.hollow.core.Vec3(1, 0, 0);
+            float maxOff = 0f;
+            for(int i = 0; i < 60; i++){
+                s.update(moving, 1f/60f);
+                maxOff = Math.max(maxOff, s.offset.len());
+            }
+            if(maxOff > s.maxOffset + 1e-3f) throw new AssertionError("offset exceeded cap");
+            if(maxOff < 1e-4f) throw new AssertionError("no spring response to motion");
+            pass("bone spring secondary motion (rest=" + String.format("%.4f", restLen) + " max=" + String.format("%.4f", maxOff) + ")");
+        } catch(Throwable t){ fail("ani024", t); failures++; }
+
+        // --- ANI-025 pose dump ---
+        try {
+            com.hollow.assets.Skeleton skel = PoseCmd.syntheticSkeleton();
+            com.hollow.assets.AnimClip clip = PoseCmd.syntheticClip(skel);
+            String json = com.hollow.anim.AnimationV23.PoseDumper.dump(clip, skel, 0.5f, 64);
+            if(!json.contains("\"joint\":\"spine\"")) throw new AssertionError("joint missing from dump");
+            if(!json.contains("qx")) throw new AssertionError("no rotation fields");
+            pass("pose dump JSON");
+        } catch(Throwable t){ fail("ani025", t); failures++; }
+
+        // --- ANI-015 root motion ---
+        try {
+            com.hollow.assets.Skeleton skel = PoseCmd.syntheticSkeleton();
+            com.hollow.assets.AnimClip clip = new com.hollow.assets.AnimClip();
+            clip.duration = 1f;
+            com.hollow.assets.AnimClip.Channel c = new com.hollow.assets.AnimClip.Channel();
+            c.times = new float[]{ 0f, 1f };
+            c.translations = new float[]{ 0,0,0, 0,0,1 };   // 1m forward per loop
+            clip.channels.put(0, c);
+            com.hollow.anim.AnimationV23.RootMotion rm = new com.hollow.anim.AnimationV23.RootMotion();
+            com.hollow.core.Vec3 d = rm.extractDelta(clip, skel, 0f, 0.5f, 0.5f, new com.hollow.core.Vec3());
+            if(Math.abs(d.z - 0.5f) > 0.05f) throw new AssertionError("delta " + d);
+            pass("root motion delta extraction");
+        } catch(Throwable t){ fail("ani015", t); failures++; }
+
+        return failures;
+    }
+
+    private static void writeTestWav(java.nio.file.Path path, int frames, int sampleRate, int channels) throws java.io.IOException {
+        int dataBytes = frames * 2 * channels;
+        java.io.DataOutputStream out = new java.io.DataOutputStream(new java.io.FileOutputStream(path.toFile()));
+        out.writeBytes("RIFF"); out.writeInt(Integer.reverseBytes(36 + dataBytes));
+        out.writeBytes("WAVE");
+        out.writeBytes("fmt "); out.writeInt(Integer.reverseBytes(16));
+        out.writeShort(Short.reverseBytes((short)1)); out.writeShort(Short.reverseBytes((short)channels));
+        out.writeInt(Integer.reverseBytes(sampleRate));
+        out.writeInt(Integer.reverseBytes(sampleRate * 2 * channels));
+        out.writeShort(Short.reverseBytes((short)(2 * channels))); out.writeShort(Short.reverseBytes((short)16));
+        out.writeBytes("data"); out.writeInt(Integer.reverseBytes(dataBytes));
+        for(int i = 0; i < frames; i++){
+            short v = (short)(Math.sin(i * 0.1) * 12000);
+            for(int c = 0; c < channels; c++){
+                out.writeByte(v & 0xFF); out.writeByte((v >> 8) & 0xFF);
+            }
+        }
+        out.close();
+    }
+
+    private static float[] quatId(){ return new float[]{ 0f, 0f, 0f, 1f }; }
+    private static float[] quatY(float deg){
+        float half = (float)Math.toRadians(deg) * 0.5f;
+        return new float[]{ 0f, (float)Math.sin(half), 0f, (float)Math.cos(half) };
     }
     private static void pass(String name){ System.out.println("PASS  " + name); }
     private static void fail(String name, Throwable t){

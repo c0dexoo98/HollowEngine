@@ -11,7 +11,7 @@
 > **v2.1** (`hollow-foundation`, Batch 1) — پوسته تعاملی `hollow shell` (REPL + .hvefile)،
 > سیستم CVar، کنسول فرمان، CrashHandler، Watchdog، JobQueue، Subsystems، Pool/Arena/RingBuffer/ReleaseQueue،
 > MemoryStats، Noise/PCG/Ease/Spline/HalfFloat/Vec4/Rect/Plane، Guid، Prefab، Result.
-> چک‌لیست مستر ۵۷۰ قابلیت: `docs/FEATURES.md` (۳۳۰ انجام‌شده، ۲۴۰ در صف).
+> چک‌لیست مستر ۵۷۰ قابلیت: `docs/FEATURES.md` (۳۹۰ انجام‌شده، ۱۸۰ در صف).
 > World Streaming، Profiler + بیلد تست خودکار.
 >
 > **v2.2** (تکمیل Batch 1 + Batch 2 رندر) — حافظه: FrameArena خودریست، EntityPool، WeakPool،
@@ -29,6 +29,30 @@
 > رعدوبرق رخدادی، track نور در Sequencer، MaterialInstance، **گراف متریال JSON**
 > (bake + validate)، LOD خودکار (metric d-screen).
 > تست: `hollow selftest` — ۵۱ تست (همه سبز).
+
+> **v2.3** (`hollow-simulation`, Batch 3: PHY/COL/AUD/ANI) —
+> **فیزیک پیشرفته**: Ragdoll مفاصل محدوددار + قطع عضو، **Cloth Verlet** با برخورد کره و پارگی،
+> **خودرو ۴چرخ** (تعلیق raycast + گریپ لغزش + تعادل anti-roll)، حجم آب با **شناوری و خط آب پایدار**،
+> WindZone با وزش/تلاطم، CCD ضدتونل‌زنی، **broadphase شبکه یکنواخت**، لایه برخورد per-body،
+> **متریال فیزیکی** (۱۰ پریست + قواعد ترکیب per-pair)، شکستن pre-fractured با رویداد،
+> تله فنری/کوبشی، **سنجه استرس جوینت + پارگی**، substep فیزیک، Point constraint،
+> هینج موتوردار با محدوده (د در)، foot planting ضدسرخوردن.
+> **برخورد**: کتابخانه `CollisionLib` — OBB↔OBB با SAT پنج‌محوره و MTV، OBB↔Capsule،
+> ConvexHull (زنجیره یکنوا)، mesh↔capsule مثلث‌دقیق، **Heightfield** با نرمال گرادیانی،
+> sweep capsule، **BVH پویا** (درخت AABB)، Contact manifold چندنقطه، ماتریس گروه ۳۲×۳۲
+> با JSON، آمار برخورد برای پروفایلر، raycast دسته‌ای، **پیک دوربین از NDC**،
+> پیش‌نمایش مسیر پرتابه با کمانک، سطح آب موج‌دار برای شناورها.
+> **صدا**: Doppler با سرعت نسبی، **HRTF باینورال** (ITD+ILD+نت پینی)،
+> **ریورب کانولوشن FFT** (overlap-add پارتیشن‌بندی + IR سنتزی)، اتوبوس‌های ۵گانه متصل به
+> CVar، **استریم WAV از دیسک**، سینت پروسیجرال (باد/وزوز/ضرب)، **مسدودسازی صدا**
+> (lowpass+تضعیف)، ReverbZone سحنی با کراس‌بلند، **هموارسازی لیسنر**، پل AudioFocus
+> اندروید (MediaSession)، **کش LRU دیکود**، لوپ بی‌درز با کراس‌فید لبه، ارسال سفارشی
+> به Delay، **زیرنویس همگام با کلاک صدا**.
+> **انیمیشن**: Retarget خودکار بین اسکلت‌ها، لایه Additive، **Root Motion** با drift fix،
+> فشرده‌سازی کلیپ (snorm16 + خطاسنج)، lean پروسیجرال، **LipSync ویسومی**،
+> **ریگ چهره ۳۲ blendshape**، میکسر چندکلیپ (۳+ همزمان)، MultiChain IK اولویت‌دار،
+> Notify با payload سفارشی، **فنر استخوان** (حرکت ثانویه)، `hollow pose` دامپ JSON.
+> تست: `hollow selftest` — ۸۰+ تست (همه سبز).
 
 ---
 
@@ -63,6 +87,7 @@
 ./hollow validate -p mygame             # لینت کامل (JSON، مرجع‌ها، کامپوننت‌ها)
 ./hollow tree -p mygame                 # درخت صحنه
 ./hollow run -p mygame --ticks 600 --assert tests.json   # شبیه‌سازی headless + assert
+./hollow pose -p mygame -c walk -t 0.5    # دامپ JSON پوز انیمیشن (ANI-025)
 ./hollow build apk -p mygame            # خروجی APK امضاشده در dist/
 ```
 

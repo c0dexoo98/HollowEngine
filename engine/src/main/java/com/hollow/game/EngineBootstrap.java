@@ -101,6 +101,18 @@ public final class EngineBootstrap {
         // v2.2 components (Batch 2)
         w.componentRegistry.put("LightProbe", com.hollow.render.LightProbes.LightProbeComponent::new);
         w.componentRegistry.put("LightProbeComponent", com.hollow.render.LightProbes.LightProbeComponent::new);
+        // v2.3 components (Batch 3: PHY/COL/AUD/ANI)
+        w.componentRegistry.put("PointJoint", Joints.Point::new);
+        w.componentRegistry.put("Ragdoll", com.hollow.physics.Ragdoll::new);
+        w.componentRegistry.put("Cloth", com.hollow.physics.Cloth::new);
+        w.componentRegistry.put("Vehicle", com.hollow.physics.Vehicle::new);
+        w.componentRegistry.put("WaterVolume", com.hollow.physics.EnvironmentPhysics.WaterVolume::new);
+        w.componentRegistry.put("WindZone", com.hollow.physics.EnvironmentPhysics.WindZone::new);
+        w.componentRegistry.put("Destruction", com.hollow.physics.Destruction::new);
+        w.componentRegistry.put("TrapPhysics", com.hollow.physics.TrapPhysics::new);
+        w.componentRegistry.put("FootPlant", com.hollow.physics.FootPlant::new);
+        w.componentRegistry.put("FacialRig", com.hollow.anim.AnimationV23.FacialRig::new);
+        w.componentRegistry.put("BoneSpringRig", com.hollow.anim.AnimationV23.BoneSpringRig::new);
     }
 
     /** after a world loads: physics statics, agent setup, script start events */

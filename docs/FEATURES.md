@@ -309,7 +309,7 @@ _Bloom، ACES، grain، جنون و افکت‌های سینمایی_
 - [x] **PST-019** — crossfade بین دو LUT رنگی (روز/جنون)
 - [x] **PST-020** — motion blur دوربین هنگام head-turn سریع
 
-## 10. PHY — فیزیک (18/35)
+## 10. PHY — فیزیک (35/35)
 
 _اجسام صلب، جوینت، کاراکتر کنترلر و تررین_
 
@@ -331,25 +331,25 @@ _اجسام صلب، جوینت، کاراکتر کنترلر و تررین_
 - [x] **PHY-016** — force/impulse API روی RigidBody
 - [x] **PHY-017** — sweep test کوتاه برای حرکت ایمن گلوله
 - [x] **PHY-018** — lock axes (مثلاً چرخش فقط حول Y)
-- [ ] **PHY-019** — Ragdoll کامل با مفاصل محدوددار
-- [ ] **PHY-020** — Cloth (شبه‌شباله Verlet) با برخورد کره
-- [ ] **PHY-021** — خودرو ساده (4 چرخ + تعادل)
-- [ ] **PHY-022** — buoyancy در حجم آب
-- [ ] **PHY-023** — wind zone فیزیکی (فشار روی rigid body)
-- [ ] **PHY-024** — CCD برای اجسام تند (glancing)
-- [ ] **PHY-025** — hinge با موتور (door physics)
-- [ ] **PHY-026** — constraint عمومی نقطه‌ای
-- [ ] **PHY-027** — تقسیم فضایی broadphase (uniform grid) با refresh خودکار
-- [ ] **PHY-028** — layer mask برخورد per-body
-- [ ] **PHY-029** — material فیزیکی (اصطکاک/بازگشت per-pair)
-- [ ] **PHY-030** — شکستن اجسام (destruction pre-fractured)
-- [ ] **PHY-031** — bajar متصل به انیمیشن (foot planting)
-- [ ] **PHY-032** — physics substep برای کیفیت تماس
-- [ ] **PHY-033** — تله‌فیزیک (trap spring/snap)
-- [ ] **PHY-034** — آب‌خوردن اجسام شناور با خط‌کشی ساده
-- [ ] **PHY-035** — استرس‌سنج joint (پاره شدن طناب)
+- [x] **PHY-019** — Ragdoll کامل با مفاصل محدوددار
+- [x] **PHY-020** — Cloth (شبه‌شباله Verlet) با برخورد کره
+- [x] **PHY-021** — خودرو ساده (4 چرخ + تعادل)
+- [x] **PHY-022** — buoyancy در حجم آب
+- [x] **PHY-023** — wind zone فیزیکی (فشار روی rigid body)
+- [x] **PHY-024** — CCD برای اجسام تند (glancing)
+- [x] **PHY-025** — hinge با موتور (door physics)
+- [x] **PHY-026** — constraint عمومی نقطه‌ای
+- [x] **PHY-027** — تقسیم فضایی broadphase (uniform grid) با refresh خودکار
+- [x] **PHY-028** — layer mask برخورد per-body
+- [x] **PHY-029** — material فیزیکی (اصطکاک/بازگشت per-pair)
+- [x] **PHY-030** — شکستن اجسام (destruction pre-fractured)
+- [x] **PHY-031** — bajar متصل به انیمیشن (foot planting)
+- [x] **PHY-032** — physics substep برای کیفیت تماس
+- [x] **PHY-033** — تله‌فیزیک (trap spring/snap)
+- [x] **PHY-034** — آب‌خوردن اجسام شناور با خط‌کشی ساده
+- [x] **PHY-035** — استرس‌سنج joint (پاره شدن طناب)
 
-## 11. COL — برخورد (10/25)
+## 11. COL — برخورد (25/25)
 
 _شکل‌ها، raycast، نفوذ و broadphase_
 
@@ -363,23 +363,23 @@ _شکل‌ها، raycast، نفوذ و broadphase_
 - [x] **COL-008** — فیلتر برخورد بر اساس tag/prچرچ
 - [x] **COL-009** — trigger volumes با مانیتور ورود/خروج
 - [x] **COL-010** — تست نقطه درون AABB/Capsule
-- [ ] **COL-011** — OBB vs OBB با SAT
-- [ ] **COL-012** — OBB vs Capsule
-- [ ] **COL-013** — Convex hull ساده (بسته تا ۳۲ راس)
-- [ ] **COL-014** — Mesh vs Capsule (برخورد دقیق با مثلث‌ها)
-- [ ] **COL-015** — heightmap collision مستقیم برای تررین
-- [ ] **COL-016** — sweep capsule برای حرکت کاراکتر (بین‌راهی)
-- [ ] **COL-017** — broadphase AABB tree (BVH) پویا
-- [ ] **COL-018** — contact manifolds چندنقطه‌ای
-- [ ] **COL-019** — collision group matrix (32×32) قابل ذخیره در پروژه
-- [ ] **COL-020** — گزارش آماری برخورد (تعداد/هزینه) برای profiler
-- [ ] **COL-021** — raycast batch (مثلاً ۳۲ پرتو یک‌جا)
-- [ ] **COL-022** — raycast از دوربین برای pick ویرایشگری
-- [ ] **COL-023** — پیش‌بینی مسیر پرتابه (trajectory preview)
-- [ ] **COL-024** — برخورد صدا-سطح (متریال برای انتخاب صدا)
-- [ ] **COL-025** — شبیه‌سازی آب سطحی برای شناورها
+- [x] **COL-011** — OBB vs OBB با SAT
+- [x] **COL-012** — OBB vs Capsule
+- [x] **COL-013** — Convex hull ساده (بسته تا ۳۲ راس)
+- [x] **COL-014** — Mesh vs Capsule (برخورد دقیق با مثلث‌ها)
+- [x] **COL-015** — heightmap collision مستقیم برای تررین
+- [x] **COL-016** — sweep capsule برای حرکت کاراکتر (بین‌راهی)
+- [x] **COL-017** — broadphase AABB tree (BVH) پویا
+- [x] **COL-018** — contact manifolds چندنقطه‌ای
+- [x] **COL-019** — collision group matrix (32×32) قابل ذخیره در پروژه
+- [x] **COL-020** — گزارش آماری برخورد (تعداد/هزینه) برای profiler
+- [x] **COL-021** — raycast batch (مثلاً ۳۲ پرتو یک‌جا)
+- [x] **COL-022** — raycast از دوربین برای pick ویرایشگری
+- [x] **COL-023** — پیش‌بینی مسیر پرتابه (trajectory preview)
+- [x] **COL-024** — برخورد صدا-سطح (متریال برای انتخاب صدا)
+- [x] **COL-025** — شبیه‌سازی آب سطحی برای شناورها
 
-## 12. AUD — صدا (16/30)
+## 12. AUD — صدا (30/30)
 
 _میکسر، DSP، فضاسازی و رندر آفلاین_
 
@@ -399,22 +399,22 @@ _میکسر، DSP، فضاسازی و رندر آفلاین_
 - [x] **AUD-014** — pause/resume سراسری با حفظ موقعیت
 - [x] **AUD-015** — audio-render آفلاین (mixdown به WAV) برای تست
 - [x] **AUD-016** — AudioFX زنجیره‌ای per-source و master
-- [ ] **AUD-017** — doppler برای منابع متحرک
-- [ ] **AUD-018** — HRTF binaural برای هدفون
-- [ ] **AUD-019** — convolution reverb با impulse record
-- [ ] **AUD-020** — سیستم bus (sfx/music/voice) با ولوم مستقل CVar
-- [ ] **AUD-021** — استریم فایل بزرگ از دیسک (نمونه‌های طولانی)
-- [ ] **AUD-022** — synth procedural (درام/باد/وزوز) بدون فایل
-- [ ] **AUD-023** — occlusion صدا (دیوار → lowpass + کاهش)
-- [ ] **AUD-024** — reverb zone های صحنه‌ای
-- [ ] **AUD-025** — listener interpolation نرم (ضد jitter)
-- [ ] **AUD-026** — media session integration اندروید (focus)
-- [ ] **AUD-027** — cache decode با LRU حافظه محدود
-- [ ] **AUD-028** — loop seamless با crossfade لبه
-- [ ] **AUD-029** — audio graph ورودی سفارشی (_send bus)
-- [ ] **AUD-030** — subtitle-sync رخداد (زمان‌بندی متن با صدا)
+- [x] **AUD-017** — doppler برای منابع متحرک
+- [x] **AUD-018** — HRTF binaural برای هدفون
+- [x] **AUD-019** — convolution reverb با impulse record
+- [x] **AUD-020** — سیستم bus (sfx/music/voice) با ولوم مستقل CVar
+- [x] **AUD-021** — استریم فایل بزرگ از دیسک (نمونه‌های طولانی)
+- [x] **AUD-022** — synth procedural (درام/باد/وزوز) بدون فایل
+- [x] **AUD-023** — occlusion صدا (دیوار → lowpass + کاهش)
+- [x] **AUD-024** — reverb zone های صحنه‌ای
+- [x] **AUD-025** — listener interpolation نرم (ضد jitter)
+- [x] **AUD-026** — media session integration اندروید (focus)
+- [x] **AUD-027** — cache decode با LRU حافظه محدود
+- [x] **AUD-028** — loop seamless با crossfade لبه
+- [x] **AUD-029** — audio graph ورودی سفارشی (_send bus)
+- [x] **AUD-030** — subtitle-sync رخداد (زمان‌بندی متن با صدا)
 
-## 13. ANI — انیمیشن (12/25)
+## 13. ANI — انیمیشن (25/25)
 
 _glTF، بلند اسپیس، IK و state machine_
 
@@ -430,19 +430,19 @@ _glTF، بلند اسپیس، IK و state machine_
 - [x] **ANI-010** — FootIK برای ایستادن روی سطح شیبدار
 - [x] **ANI-011** — look-at سر (نظر کردن به هدف)
 - [x] **ANI-012** — اسکلت bind pose + hierarchy محاسبه جهانی
-- [ ] **ANI-013** — retarget بین اسکلت‌های متفاوت
-- [ ] **ANI-014** — لایه additive (مثلاً نفس بالای walk)
-- [ ] **ANI-015** — root motion برداشت جابجایی از کلیپ
-- [ ] **ANI-016** — compress کلیپ (quantize rotation) با خطای مجاز
-- [ ] **ANI-017** — procedural lean (تمایل به جهت حرکت)
-- [ ] **ANI-018** — lip sync ساده (viseme از دامنه صدا)
-- [ ] **ANI-019** — facial rig سبک (۳۲ شکل‌دهنده)
-- [ ] **ANI-020** — blend توپولوژی همزمان ۳+ کلیپ
-- [ ] **ANI-021** — IK چندزنجیره‌ای (دست + سر همزمان)
-- [ ] **ANI-022** — animation drift اصلاح (بازگشت به مسیر منطقی)
-- [ ] **ANI-023** — event payload سفارشی در notify
-- [ ] **ANI-024** — تجمیع انیمیشن فیزیکی (springs on bones)
-- [ ] **ANI-025** — پیش‌نمایش CLI انیمیشن (dump pose در tick مشخص)
+- [x] **ANI-013** — retarget بین اسکلت‌های متفاوت
+- [x] **ANI-014** — لایه additive (مثلاً نفس بالای walk)
+- [x] **ANI-015** — root motion برداشت جابجایی از کلیپ
+- [x] **ANI-016** — compress کلیپ (quantize rotation) با خطای مجاز
+- [x] **ANI-017** — procedural lean (تمایل به جهت حرکت)
+- [x] **ANI-018** — lip sync ساده (viseme از دامنه صدا)
+- [x] **ANI-019** — facial rig سبک (۳۲ شکل‌دهنده)
+- [x] **ANI-020** — blend توپولوژی همزمان ۳+ کلیپ
+- [x] **ANI-021** — IK چندزنجیره‌ای (دست + سر همزمان)
+- [x] **ANI-022** — animation drift اصلاح (بازگشت به مسیر منطقی)
+- [x] **ANI-023** — event payload سفارشی در notify
+- [x] **ANI-024** — تجمیع انیمیشن فیزیکی (springs on bones)
+- [x] **ANI-025** — پیش‌نمایش CLI انیمیشن (dump pose در tick مشخص)
 
 ## 14. AI — هوش مصنوعی (10/30)
 

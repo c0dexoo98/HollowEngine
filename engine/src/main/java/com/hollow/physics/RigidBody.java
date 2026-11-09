@@ -15,6 +15,15 @@ import java.util.List;
 public final class RigidBody extends Component {
     public enum Shape { SPHERE, BOX, CAPSULE }
 
+    // ---- v2.3 layer system (PHY-028): body sits on layer(s), accepts layer(s) ----
+    public static final int LAYER_DEFAULT = 1, LAYER_PLAYER = 2, LAYER_ENEMY = 4,
+                            LAYER_PROP = 8, LAYER_DEBRIS = 16, LAYER_TRIGGER = 32;
+    public int layer = LAYER_DEFAULT;              // bitmask of groups this body belongs to
+    public int collidesWith = 0xFFFFFFFF;          // bitmask of groups it interacts with
+    // ---- v2.3 material (PHY-029) + CCD (PHY-024) ----
+    public String material = "";                   // PhysicsMaterials preset name ("" = use inline friction/bounciness)
+    public boolean ccd = false;                    // continuous collision detection for fast movers
+
     public float mass = 1f;
     public float gravityScale = 1f;
     public float linearDrag = 0.02f;
@@ -84,6 +93,12 @@ public final class RigidBody extends Component {
 
     public void wake(){ sleeping = false; sleepTimer = 0f; }
 
+    /** PHY-028: pair filter — both directions must accept for interaction */
+    public boolean interacts(RigidBody o){
+        if(o == null) return false;
+        return (this.collidesWith & o.layer) != 0 && (o.collidesWith & this.layer) != 0;
+    }
+
     /** sphere inertia 2/5 m r² (box/capsule approximated with same order) */
     public float inertiaApprox(){
         float r = Math.max(0.05f, effectiveRadius());
@@ -104,7 +119,9 @@ public final class RigidBody extends Component {
           .kv("bounciness",bounciness).kv("friction",friction).kv("kinematic",kinematic)
           .kv("sleepEnabled",sleepEnabled)
           .kv("shape", shape.name().toLowerCase())
-          .kv("radius",radius).kv("capsuleHeight",capsuleHeight);
+          .kv("radius",radius).kv("capsuleHeight",capsuleHeight)
+          .kv("layer",layer).kv("collidesWith",collidesWith)
+          .kv("material",material).kv("ccd",ccd);
         if(shape == Shape.BOX) w.kvv("boxSize", boxSize.x, boxSize.y, boxSize.z);
         w.endObj();
     }
@@ -121,6 +138,10 @@ public final class RigidBody extends Component {
         try { shape = Shape.valueOf(sh.toUpperCase()); } catch(Exception ignored){ shape = Shape.SPHERE; }
         radius = n.flt("radius",0.25f);
         capsuleHeight = n.flt("capsuleHeight",1.0f);
+        layer = (int)n.flt("layer", LAYER_DEFAULT);
+        collidesWith = (int)n.flt("collidesWith", -1);
+        material = n.str("material","");
+        ccd = n.bool("ccd",false);
         Object bs = n.get("boxSize");
         if(bs instanceof List<?> l && l.size() >= 3){
             boxSize.set(fnum(l.get(0)), fnum(l.get(1)), fnum(l.get(2)));

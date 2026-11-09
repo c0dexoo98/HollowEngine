@@ -37,7 +37,8 @@ hollow clean -p <project>                   پاک‌سازی خروجی‌ها�
 ## فرمان‌های v2.0
 
 ```bash
-hollow selftest                                    # ۹ تست واحد موتور (ریاضی/بلنداسپیس/IK/reverb/EQ/کمپرسور/profiler/wav)
+hollow selftest                                    # ۸۰+ تست واحد موتور (v2.3: برخورد/فیزیک/صدا/انیمیشن)
+hollow pose -p proj -c walk -t 0.5                 # دامپ JSON پوز انیمیشن در زمان t (ANI-025)
 hollow profile -p proj --ticks 600 --csv out.csv   # پروفایلر زونه‌ای (anim/ai/physics/...) + خروجی CSV
 hollow bench -p proj --bodies 150 --ticks 600      # بنچمارک فیزیک با اجسام داینامیک
 hollow net test                                    # loopback کامل سرور/کلاینت (WELCOME/snapshot/interpolation)
