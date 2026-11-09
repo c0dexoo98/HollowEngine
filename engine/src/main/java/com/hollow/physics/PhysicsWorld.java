@@ -14,15 +14,15 @@ import java.util.List;
 import java.util.Map;
 
 /** Static colliders + dynamics + character controller + raycast + triggers.
- *  Implementation notes (Agent C):
- *  - Statics are rebuilt on every onWorldLoaded(world) from Box/Sphere/CapsuleCollider components.
- *    All shapes are stored in world space (AABB for boxes; center+radius for spheres; vertical
- *    segment+radius for capsules). Rotated boxes are approximated by their enclosing world AABB.
- *  - update(dt) integrates RigidBody entities (point-sphere dynamics, radius 0.25) with collision
- *    resolve against statics, then tests movers vs trigger colliders and fires EventBus
- *    "trigger_enter"/"trigger_exit" once per state change. CharacterControllers integrate
- *    themselves via CharacterController.onUpdate (gravity) + move() (collide-and-slide).
- *  - raycast: slab test for boxes, quadratic for spheres, capsules as 2 spheres + bounds AABB.
+ *  v2.0 dynamics:
+ *  - RigidBody shapes: sphere / box(AABB) / capsule(vertical) — entity scale multiplies dims.
+ *  - Dynamic-dynamic impulse solver (equal-weight exchange + restitution + Coulomb friction),
+ *    dynamic-static pushout with friction, positional correction (Baumgarte-style clamp).
+ *  - Sleeping: bodies below velocity threshold sleep (wake() on impulse/contact).
+ *  - Joints: Distance/Spring/Hinge via Joint.Manager (collected on world load, solved per step).
+ *  - Events: EventBus "collision" {entity, other, speed} on hard contacts (rate-limited).
+ *  - Queries: overlapSphere, applyRadialImpulse.
+ *  Statics/triggers/raycast/character controller unchanged from v1 (see history).
  */
 public final class PhysicsWorld {
     public final Vec3 gravity = new Vec3(0, -9.81f, 0);
@@ -48,6 +48,10 @@ public final class PhysicsWorld {
     private final List<CharacterController> controllers = new ArrayList<>();
     private final List<RigidBody> bodies = new ArrayList<>();
     private final Map<Object, HashSet<StaticShape>> insideSets = new HashMap<>();
+    /** v2: joint manager — collected on world load, solved after body integration */
+    public final Joints.Manager joints = new Joints.Manager();
+    private final Map<Long, Float> collisionCooldown = new HashMap<>();  // pairKey -> time left
+    private float collisionEventCooldown = 0f;
 
     // scratch (single-threaded simulation)
     private final Vec3 sA = new Vec3(), sB = new Vec3(), sC = new Vec3();
@@ -65,9 +69,12 @@ public final class PhysicsWorld {
         controllers.clear();
         bodies.clear();
         insideSets.clear();
+        collisionCooldown.clear();
+        joints.collect(world);
         if(world == null) return;
         for(Entity e : world.entities) collect(e);
-        Log.d("Physics", "statics=" + shapes.size() + " controllers=" + controllers.size() + " bodies=" + bodies.size());
+        Log.d("Physics", "statics=" + shapes.size() + " controllers=" + controllers.size()
+            + " bodies=" + bodies.size() + " joints=" + joints.joints.size());
     }
 
     private void collect(Entity e){
@@ -139,6 +146,18 @@ public final class PhysicsWorld {
     /** read-only view of all registered static/trigger shapes (used by NavGrid). */
     public List<StaticShape> staticShapes(){ return java.util.Collections.unmodifiableList(shapes); }
 
+    /** v2.0: runtime registration for dynamically spawned bodies (idempotent) */
+    public void registerBody(RigidBody rb){
+        if(rb == null || rb.entity == null) return;
+        if(!bodies.contains(rb)) bodies.add(rb);
+    }
+
+    /** v2.0: runtime registration for dynamically spawned character controllers */
+    public void registerController(CharacterController cc){
+        if(cc == null || cc.entity == null) return;
+        if(!controllers.contains(cc)) controllers.add(cc);
+    }
+
     // ------------------------------------------------------------------
     // simulation
     // ------------------------------------------------------------------
@@ -147,86 +166,285 @@ public final class PhysicsWorld {
         if(dt <= 0f) return;
         controllers.removeIf(c -> c.entity == null || c.entity.destroyed);
         bodies.removeIf(b -> b.entity == null || b.entity.destroyed);
+        collisionEventCooldown = Math.max(0f, collisionEventCooldown - dt);
+        for(Map.Entry<Long, Float> kv : collisionCooldown.entrySet())
+            if(kv.getValue() > 0f) kv.setValue(kv.getValue() - dt);
+        boolean anyAwake = false;
         for(RigidBody rb : bodies){
             if(rb.entity == null || !rb.entity.active || rb.entity.destroyed) continue;
-            if(!rb.kinematic) integrateBody(rb, dt);
+            if(rb.kinematic || rb.sleeping) continue;
+            integrateBody(rb, dt);
+            anyAwake = true;
+        }
+        if(anyAwake || joints.joints.size() > 0){
+            solveDynamicPairs(dt);
+            joints.solve(dt);
         }
         updateTriggers();
     }
 
+    // ------------------------------------------------------------------
+    // v2 body integration (shape-aware)
+    // ------------------------------------------------------------------
     private void integrateBody(RigidBody rb, float dt){
         Entity e = rb.entity;
         rb.velocity.addScaled(gravity, rb.gravityScale * dt);
-        if(rb.drag > 0f){
-            float damp = Math.max(0f, 1f - rb.drag * dt);
+        if(rb.linearDrag > 0f){
+            float damp = Math.max(0f, 1f - rb.linearDrag * dt);
             rb.velocity.scale(damp);
         }
+        if(rb.angularDrag > 0f){
+            float damp = Math.max(0f, 1f - rb.angularDrag * dt);
+            rb.angularVelocity.scale(damp);
+        }
         Vec3 disp = sA.set(rb.velocity).scale(dt);
-        int n = 1 + (int)(disp.len() / 0.2f);
+        float r = rb.effectiveRadius();
+        int n = 1 + (int)(disp.len() / Math.max(0.05f, r * 0.5f));
         n = Math.min(n, 16);
         Vec3 step = sB.set(disp).scale(1f / n);
         rb.grounded = false;
         for(int i = 0; i < n; i++){
             e.position.add(step);
-            resolvePointSphere(rb);
+            resolveBodyStatics(rb);
+        }
+        // angular integration: yaw only (mobile-friendly single-axis spin; pitch/roll reserved)
+        if(Math.abs(rb.angularVelocity.y) > 1e-5f){
+            com.hollow.core.Quat delta = com.hollow.core.Quat.fromAxisAngle(0, 1, 0, rb.angularVelocity.y * dt * MathX.DEG);
+            delta.mul(e.rotation);
+            e.rotation.set(delta).norm();
+            e.markDirtyDeep();
+        }
+        // sleeping
+        if(rb.sleepEnabled){
+            float lin = rb.velocity.len(), ang = rb.angularVelocity.len();
+            if(lin < 0.06f && ang < 0.06f && rb.grounded){
+                rb.sleepTimer += dt;
+                if(rb.sleepTimer > 0.6f){
+                    rb.sleeping = true;
+                    rb.velocity.set(0,0,0);
+                    rb.angularVelocity.set(0,0,0);
+                    rb.sleepTimer = 0f;
+                }
+            } else rb.sleepTimer = 0f;
         }
         e.markDirtyDeep();
     }
 
-    /** point-sphere (radius BODY_RADIUS) vs statics; reflects velocity by bounciness */
-    private void resolvePointSphere(RigidBody rb){
+    private float bodyRadiusScaled(RigidBody rb){
+        return rb.effectiveRadius() * Math.max(1e-3f, worldScale(rb.entity));
+    }
+
+    /** v2: resolve body shape vs static shapes; friction + restitution, wakes body on contact */
+    private void resolveBodyStatics(RigidBody rb){
         Entity e = rb.entity;
         Vec3 p = e.position;
+        float r = bodyRadiusScaled(rb);
         for(int pass = 0; pass < 3; pass++){
             boolean any = false;
             for(StaticShape s : shapes){
                 if(s.isTrigger) continue;
-                sA.set(BODY_RADIUS, BODY_RADIUS, BODY_RADIUS);
-                if(!expand(s.bounds, sA).overlaps(AABB.fromCenterExtents(p, sA))) continue;
-                float pen = 0f;
-                sC.set(0, 0, 0); // normal out
+                float pen; Vec3 outN;
                 if(s.kind == KIND_BOX){
-                    clampToBox(p, s.bounds.min, s.bounds.max, qb);
-                    sB.set(p).sub(qb);
-                    float d = sB.len();
-                    if(d >= BODY_RADIUS) continue;
-                    float faceDist;
-                    if(d < 1e-6f){
-                        minAxisPush(p, s.bounds.min, s.bounds.max, BODY_RADIUS, sC);
-                        faceDist = 0f;
-                    } else {
-                        sC.set(sB).scale(1f / d);
-                        faceDist = d;
-                    }
-                    pen = BODY_RADIUS - faceDist;
+                    pen = spherePenBox(p, r, s.bounds.min, s.bounds.max, cn);
                 } else if(s.kind == KIND_SPHERE){
-                    sB.set(p).sub(s.center);
-                    float d = sB.len();
-                    if(d >= BODY_RADIUS + s.radius) continue;
-                    if(d < 1e-6f) sC.set(0, 1, 0);
-                    else sC.set(sB).scale(1f / d);
-                    pen = BODY_RADIUS + s.radius - d;
+                    pen = spherePenSphere(p, r, s.center, s.radius, cn);
                 } else {
-                    closestOnSeg(s.capA, s.capB, p, qb);
-                    sB.set(p).sub(qb);
-                    float d = sB.len();
-                    if(d >= BODY_RADIUS + s.radius) continue;
-                    if(d < 1e-6f) sC.set(0, 1, 0);
-                    else sC.set(sB).scale(1f / d);
-                    pen = BODY_RADIUS + s.radius - d;
+                    pen = spherePenCapsule(p, r, s.capA, s.capB, s.radius, cn);
                 }
+                if(pen <= 0f) continue;
                 any = true;
-                p.addScaled(sC, pen);
-                // velocity response
-                float vn = rb.velocity.dot(sC);
+                outN = cn;
+                p.addScaled(outN, pen);
+                float vn = rb.velocity.dot(outN);
                 if(vn < 0f){
-                    rb.velocity.addScaled(sC, -(1f + Math.max(0f, rb.bounciness)) * vn);
-                    if(rb.bounciness <= 0.001f && sC.y > 0.7f) rb.velocity.y = Math.max(rb.velocity.y, 0f);
+                    // impulse with restitution
+                    float rest = Math.max(0f, rb.bounciness) * (Math.abs(vn) > 1.0f ? 1f : 0.4f);
+                    rb.velocity.addScaled(outN, -(1f + rest) * vn);
+                    // Coulomb friction on tangential component
+                    applyFriction(rb, outN, vn);
+                    if(rb.sleepEnabled && rb.sleeping) rb.wake();
+                    if(outN.y > 0.7f) rb.grounded = true;
+                    // collision event (rate limited per pair)
+                    if(s.entity != null && !collisionEventCooldown(s.entity, e)) fireCollision(e, s.entity, Math.abs(vn));
                 }
-                if(sC.y > 0.7f) rb.grounded = true;
             }
             if(!any) break;
         }
+    }
+
+    private void applyFriction(RigidBody rb, Vec3 normal, float vn){
+        // remove tangential velocity proportionally to friction and normal speed
+        float mu = Math.max(0f, rb.friction);
+        if(mu <= 0.001f) return;
+        Vec3 tang = rb.velocity.cpy().addScaled(normal, -rb.velocity.dot(normal));
+        float tl = tang.len();
+        if(tl < 1e-6f) return;
+        float maxD = mu * Math.abs(vn) + 0.02f;      // impulse budget
+        float remove = Math.min(tl, maxD * 60f * 0.016f * 10f); // per-substep, clamped
+        tang.scale(-remove / tl);
+        rb.velocity.add(tang);
+    }
+
+    private boolean collisionEventCooldown(Entity a, Entity b){
+        long key = pairKey(a, b);
+        Float v = collisionCooldown.get(key);
+        return v != null && v > 0f;
+    }
+
+    private static long pairKey(Entity a, Entity b){
+        long lo = Math.min(a.id, b.id), hi = Math.max(a.id, b.id);
+        return (lo << 32) | (hi & 0xFFFFFFFFL);
+    }
+
+    private void fireCollision(Entity a, Entity b, float speed){
+        collisionCooldown.put(pairKey(a, b), 0.5f);
+        com.hollow.game.GameApp g = com.hollow.game.GameApp.instance;
+        if(g == null || g.services() == null || g.services().events == null) return;
+        if(speed < 0.8f) return;                       // ignore soft touches
+        java.util.Map<String,Object> data = new java.util.LinkedHashMap<>();
+        data.put("entity", a.name);
+        data.put("other", b.name);
+        data.put("speed", (double)speed);
+        g.services().events.fire("collision", data);
+    }
+
+    // ------------------------------------------------------------------
+    // v2 dynamic-dynamic pairs (sphere approx, equal-weight impulse exchange)
+    // ------------------------------------------------------------------
+    private void solveDynamicPairs(float dt){
+        int n = bodies.size();
+        for(int i = 0; i < n; i++){
+            RigidBody A = bodies.get(i);
+            if(A.entity == null || !A.entity.active || A.entity.destroyed) continue;
+            for(int j2 = i + 1; j2 < n; j2++){
+                RigidBody B = bodies.get(j2);
+                if(B.entity == null || !B.entity.active || B.entity.destroyed) continue;
+                if(A.kinematic && B.kinematic) continue;
+                if(A.sleeping && B.sleeping) continue;
+                float ra = bodyRadiusScaled(A), rbB = bodyRadiusScaled(B);
+                Vec3 pa = A.entity.position, pb = B.entity.position;
+                Vec3 d = sC.set(pb).sub(pa);
+                float dist = d.len();
+                float minD = ra + rbB;
+                if(dist >= minD || dist < 1e-6f) continue;
+                Vec3 nrm = d.scale(1f / dist);
+                float pen = minD - dist;
+                float wA = A.kinematic || A.mass <= 0f ? 0f : 1f / A.mass;
+                float wB = B.kinematic || B.mass <= 0f ? 0f : 1f / B.mass;
+                float wSum = wA + wB;
+                if(wSum < 1e-8f) continue;
+                if(!A.kinematic) A.entity.position.addScaled(nrm, -pen * (wA / wSum));
+                if(!B.kinematic) B.entity.position.addScaled(nrm, pen * (wB / wSum));
+                float relV = B.velocity.dot(nrm) - A.velocity.dot(nrm);
+                if(relV < 0f){
+                    float e2 = Math.max(A.bounciness, B.bounciness);
+                    float jImp = -(1f + e2) * relV / wSum;
+                    if(!A.kinematic) A.velocity.addScaled(nrm, -jImp * wA);
+                    if(!B.kinematic) B.velocity.addScaled(nrm,  jImp * wB);
+                    // friction on tangential
+                    Vec3 vt = sB.set(B.velocity).sub(A.velocity).addScaled(nrm, -relV);
+                    float vtLen = vt.len();
+                    if(vtLen > 1e-5f){
+                        float mu = 0.5f * (A.friction + B.friction);
+                        float jt = Math.min(vtLen / wSum, mu * jImp);
+                        Vec3 t = vt.scale(1f / vtLen);
+                        if(!A.kinematic) A.velocity.addScaled(t, -jt * wA);
+                        if(!B.kinematic) B.velocity.addScaled(t,  jt * wB);
+                    }
+                    if(A.sleepEnabled) A.wake();
+                    if(B.sleepEnabled) B.wake();
+                    if(!collisionEventCooldown(A.entity, B.entity)) fireCollision(A.entity, B.entity, Math.abs(relV));
+                }
+                A.entity.markDirtyDeep(); B.entity.markDirtyDeep();
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // v2 queries
+    // ------------------------------------------------------------------
+    /** all entities whose static shape overlaps the sphere (triggers included with flag) */
+    public List<Entity> overlapSphere(Vec3 center, float radius, boolean includeTriggers){
+        List<Entity> out = new ArrayList<>();
+        for(StaticShape s : shapes){
+            if(s.isTrigger && !includeTriggers) continue;
+            float d;
+            if(s.kind == KIND_BOX){
+                clampToBox(center, s.bounds.min, s.bounds.max, qb);
+                d = center.dist(qb);
+            } else if(s.kind == KIND_SPHERE){
+                d = center.dist(s.center) - s.radius;
+            } else {
+                closestOnSeg(s.capA, s.capB, center, qb);
+                d = center.dist(qb) - s.radius;
+            }
+            if(d <= radius && s.entity != null) out.add(s.entity);
+        }
+        return out;
+    }
+
+    /** radial impulse to all dynamic bodies in range (grenades, explosions) */
+    public void applyRadialImpulse(Vec3 center, float radius, float force){
+        for(RigidBody rb : bodies){
+            if(rb.entity == null || !rb.entity.active || rb.kinematic) continue;
+            rb.addRadialImpulse(center, radius, force);
+        }
+    }
+
+    public int bodyCount(){ return bodies.size(); }
+    public int awakeCount(){
+        int n = 0;
+        for(RigidBody rb : bodies) if(!rb.sleeping && !rb.kinematic) n++;
+        return n;
+    }
+
+    /** sphere(box r) vs AABB penetration; returns penetration (>0) and out normal */
+    private static float spherePenBox(Vec3 p, float r, Vec3 mn, Vec3 mx, Vec3 outN){
+        float cx = MathX.clamp(p.x, mn.x, mx.x);
+        float cy = MathX.clamp(p.y, mn.y, mx.y);
+        float cz = MathX.clamp(p.z, mn.z, mx.z);
+        float dx = p.x - cx, dy = p.y - cy, dz = p.z - cz;
+        float d2 = dx*dx + dy*dy + dz*dz;
+        if(d2 > r*r) return 0f;
+        if(d2 > 1e-12f){
+            float d = (float)Math.sqrt(d2);
+            outN.set(dx/d, dy/d, dz/d);
+            return r - d;
+        }
+        // center inside box: push along min axis
+        float dxm = p.x - mn.x, dxM = mx.x - p.x;
+        float dym = p.y - mn.y, dyM = mx.y - p.y;
+        float dzm = p.z - mn.z, dzM = mx.z - p.z;
+        float m = Math.min(dxm, Math.min(dxM, Math.min(dym, Math.min(dyM, Math.min(dzm, dzM)))));
+        if(m == dxm){ outN.set(-1,0,0); return dxm + r; }
+        if(m == dxM){ outN.set( 1,0,0); return dxM + r; }
+        if(m == dym){ outN.set(0,-1,0); return dym + r; }
+        if(m == dyM){ outN.set(0, 1,0); return dyM + r; }
+        if(m == dzm){ outN.set(0,0,-1); return dzm + r; }
+        outN.set(0,0, 1); return dzM + r;
+    }
+
+    private static float spherePenSphere(Vec3 p, float r, Vec3 c, float cr, Vec3 outN){
+        Vec3 d = p.cpy().sub(c);
+        float dist = d.len();
+        float minD = r + cr;
+        if(dist >= minD) return 0f;
+        if(dist < 1e-6f){ outN.set(0,1,0); return minD; }
+        outN.set(d.scale(1f/dist));
+        return minD - dist;
+    }
+
+    private static float spherePenCapsule(Vec3 p, float r, Vec3 a, Vec3 b, float cr, Vec3 outN){
+        Vec3 tmp = new Vec3();
+        closestOnSeg(a, b, p, tmp);
+        return spherePenSphere(p, r, tmp, cr, outN);
+    }
+
+    // ------------------------------------------------------------------
+    // v1 legacy point-sphere solver (kept for compatibility; superseded by resolveBodyStatics)
+    // ------------------------------------------------------------------
+    private void resolvePointSphere(RigidBody rb){
+        resolveBodyStatics(rb);
     }
 
     private AABB expand(AABB b, Vec3 r){
@@ -614,13 +832,13 @@ public final class PhysicsWorld {
     public int colliderCount(){ return shapes.size(); }
 
     // ------------------------------------------------------------------
-    // closest-point helpers
+    // closest-point helpers (public: EQS and gameplay queries reuse them)
     // ------------------------------------------------------------------
-    static void clampToBox(Vec3 p, Vec3 mn, Vec3 mx, Vec3 out){
+    public static void clampToBox(Vec3 p, Vec3 mn, Vec3 mx, Vec3 out){
         out.set(MathX.clamp(p.x, mn.x, mx.x), MathX.clamp(p.y, mn.y, mx.y), MathX.clamp(p.z, mn.z, mx.z));
     }
 
-    static void closestOnSeg(Vec3 a, Vec3 b, Vec3 p, Vec3 out){
+    public static void closestOnSeg(Vec3 a, Vec3 b, Vec3 p, Vec3 out){
         float abx = b.x - a.x, aby = b.y - a.y, abz = b.z - a.z;
         float l2 = abx * abx + aby * aby + abz * abz;
         float t = 0f;

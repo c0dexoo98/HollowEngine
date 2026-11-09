@@ -4,6 +4,10 @@
 
 > General-purpose game engine, Unreal-class architecture, pure Java 17, zero dependencies,
 > Android GLES 3.0 runtime + full Linux CLI workflow (`./hollow`).
+>
+> **v2.0** — فیزیک کامل (حل‌گر ضربه + Joint + خواب اجسام)، IBL کامل، Instancing/Foliage،
+> SSAO، Decal، BlendSpace/IK/Notify، EQS + Crowd، Reverb/EQ/Ducking، شبکه (snapshot+interpolation)،
+> World Streaming، Profiler + بیلد تست خودکار.
 
 ---
 

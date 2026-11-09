@@ -14,11 +14,11 @@
 | مه | ✅ Volumetric | ✅ Exp2 + height falloff |
 | Post-Process | ✅ کامل | ✅ Bloom (brightpass + gaussian) + ACES + Color Grade + Vignette + Film Grain + Chromatic Aberration + FXAA |
 | Tone Mapping | ✅ | ✅ ACES + Exposure |
-| IBL کامل | ✅ | 🟡 ambient hemisphere + انعکاس تحلیلی envBRDF |
-| Decal | ✅ | 🔜 |
+| IBL کامل | ✅ | ✅ **v2.0** کیوبمپ irradiance + prefiltered specular (۵ میپ) + DFG LUT — بیک CPU از آسمان رویه‌ای |
+| Decal | ✅ | ✅ **v2.0** دیکال screen-space projected (box volume، depth reconstruct، ping-pong) |
 | کیفیت‌بندی خودکار | ✅ Scalability | ✅ LOW/MEDIUM/HIGH/ULTRA (رزولوشن/سایه/نور/افکت‌ها) |
 | Frustum Culling | ✅ | ✅ |
-| Instancing | ✅ | 🔜 |
+| Instancing | ✅ | ✅ **v2.0** drawElementsInstanced + سیستم Foliage (پراکندن قطعی، frustum cull، باد در شیدر) |
 | آب | ✅ Water System | ✅ موج Gerstner-lite + Fresnel |
 | اسکینینگ GPU | ✅ | ✅ ۶۴ مفصل، ۴ weight |
 | تررین | ✅ Landscape | ✅ heightmap → مش با نرمال محاسبه‌شده |
@@ -29,8 +29,8 @@
 | لود glTF انیمیشن | ✅ | ✅ LINEAR/STEP/CUBICSPLINE (bake) |
 | Crossfade بلندینگ | ✅ | ✅ دوتایی با slerp |
 | State Machine | ✅ Animation Blueprint | ✅ JSON (شرط var/رویداد) |
-| Blend Space | ✅ | 🔜 |
-| IK / Retarget | ✅ | 🔜 |
+| Blend Space | ✅ | ✅ **v2.0** 1D/2D با درون‌یابی inverse-distance تا ۴ کلیپ + notifies + socket/Attachment + IK دواستخوان + FootIK |
+| IK / Retarget | ✅ | ✅ **v2.0** IK تحلیلی دواستخوان + look-at + FootIK (retarget: فاز ۳) |
 
 ## فیزیک
 | قابلیت | UE | HollowEngine |
@@ -39,8 +39,8 @@
 | Character Controller | ✅ | ✅ collide-and-slide + step-up + ground snap |
 | Raycast | ✅ | ✅ box/sphere/capsule slab |
 | تریگر + رویداد | ✅ | ✅ enter/exit با EventBus |
-| Rigid Body دینامیک | ✅ | 🟡 نقطه-کره (سبک) |
-| Ragdoll/Cloth/Destruction/خودرو | ✅ | 🔜 (فاز ۲) |
+| Rigid Body دینامیک | ✅ | ✅ **v2.0** حل‌گر ضربه dynamic-dynamic + اصطکاک کولن + restitution + خواب اجسام + رویداد برخورد + Joint (Distance/Spring/Hinge) + انفجار شعاعی |
+| Ragdoll/Cloth/Destruction/خودرو | ✅ | 🔜 (فاز ۳ — پایه‌ها در v2.0:Joint + شبه‌شباله) |
 
 ## هوش مصنوعی
 | قابلیت | UE | HollowEngine |
@@ -49,8 +49,8 @@
 | Blackboard | ✅ | ✅ (VarTable) |
 | Perception | ✅ | ✅ مخروط دید + occlusion raycast + شنوایی (رویداد noise) |
 | NavMesh | ✅ | ✅ NavGrid + A* 8-dir + string-pull smoothing |
-| EQS | ✅ | 🟡 (move_to/search) |
-| Crowd/Mass AI | ✅ | 🔜 |
+| EQS | ✅ | ✅ **v2.0** کوئری داده‌محور (circle/ring/donut) + تست‌های pathfindable/unblocked/dist/visible/toward/away/random با امتیازدهی |
+| Crowd/Mass AI | ✅ | ✅ **v2.0** اجتناب محلی crowd (RVO-lite) + نودهای BT جدید: cooldown/time_limit/random_selector/service/force_* |
 
 ## صدا
 | قابلیت | UE | HollowEngine |
@@ -58,7 +58,7 @@
 | میکس چندباسه | ✅ MetaSounds | ✅ master/music/sfx/ambient/voice |
 | سه‌بعدی | ✅ | ✅ equal-power pan + attenuation + rolloff |
 | فرمت‌ها | ✅ | ✅ WAV (همه‌جا) + OGG (اندروید MediaCodec) |
-| Reverb/EQ | ✅ | 🔜 |
+| Reverb/EQ | ✅ | ✅ **v2.0** Freeverb + EQ سه‌بانده + Compressor + Ducking + کراس‌فید موسیقی + رندر آفلاین WAV |
 
 ## اسکریپتینگ و گیم‌پلی
 | قابلیت | UE | HollowEngine |
@@ -71,7 +71,7 @@
 | Sequencer سینماتیک | ✅ | ✅ دوربین/ترنسفورم/انیمیشن/صدا/رویداد/fade/caption |
 | پارتیکل | ✅ Niagara | ✅ rate/burst/curve/.gravity/drag/additive |
 | VFS / Asset DB | ✅ | ✅ با کش و فرمت‌های باینری اختصاصی HVM/HVT |
-| شبکه | ✅ Replication کامل | 🟡 TCP channel — فاز ۲ |
+| شبکه | ✅ Replication کامل | ✅ **v2.0** سرور authoritative + کلاینت + snapshot 15Hz + درون‌یابی 100ms + رویداد رله (فاز ۳: UDP) |
 
 ## ابزارها (این‌جاست که CLI می‌درخشد)
 | قابلیت | UE | HollowEngine |
@@ -79,10 +79,25 @@
 | ادیتور | ✅ گرافیکی کامل | ✅ **CLI کامل** (`hollow new/gen/import/atlas/validate/tree/run/build`) + هر فایل JSON قابل ویرایش |
 | تست خودکار | ✅ Gauntlet | ✅ `hollow run --assert` با شبیه‌سازی headless قطعی |
 | بیلد خروجی | ✅ چند پلتفرم | ✅ APK امضاشده یک‌کلیکی |
-| پروفایلر | ✅ Insights | 🟡 Stats رندر + لاگ سطح‌بندی |
+| پروفایلر | ✅ Insights | ✅ **v2.0** Profiler zone-based (۸ زون موتور) + خروجی CSV + `hollow profile` |
 
 ## صادقانه غیرممکن در Java خالص
 Nanite، Lumen کامل، Hardware Ray Tracing، MetaHuman، Path Tracer، کنسول‌ها، Pixel Streaming، ادیتور گرافیکی سه‌بعدی.
+
+
+## v2.0 — قابلیت‌های جدید (تقویت کامل)
+
+| قابلیت | UE | HollowEngine 2.0 |
+|---|---|---|
+| World Partition / Streaming | ✅ | ✅ **v2.0** سلول‌های StreamingVolume با hysteresis + رویداد cell_loaded/unloaded |
+| SSAO | ✅ | ✅ **v2.0** نیم‌رزولوشن، بازسازی از depth، کرنل نیمکره‌ای (تا ۱۶ سمپل) |
+| آبشاری تست | — | ✅ **v2.0** `hollow selftest` (۹ تست واحد) + پروژه engine-tests با assert های headless |
+| بنچمارک | ✅ Automation | ✅ **v2.0** `hollow bench` (فیزیک/AI throughput) |
+| تست شبکه headless | — | ✅ **v2.0** `hollow net test` — loopback کامل سرور/کلاینت |
+| رندر صدا آفلاین | — | ✅ **v2.0** `hollow audio-render` — میکس کامل با کل زنجیره DSP به WAV |
+| UI v2 | ✅ UMG | ✅ **v2.0** NineSlice + ListView مجازی‌سازی‌شده + سیستم Tween |
+| VFX v2 | ✅ Niagara | ✅ **v2.0** تریل (spawn-on-move) + sub-emitter مرگ پارتیکل + برخورد پارتیکل با استاتیک (kill/bounce) |
+| خودکار ثبت دوربین | — | ✅ **v2.0** auto-assign activeCamera + ثبت خودکار اجسام داینامیک جدید در فیزیک |
 
 ---
 

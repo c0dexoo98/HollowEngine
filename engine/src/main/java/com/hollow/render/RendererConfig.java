@@ -34,6 +34,15 @@ public final class RendererConfig {
     /** tonemap exposure multiplier */
     public float exposure = 1f;
 
+    // ---- v2.0 features ----
+    public boolean ibl = true;             // full image-based lighting (cubemaps)
+    public boolean ssao = true;            // screen-space ambient occlusion
+    public boolean decals = true;          // screen-space projected decals
+    public boolean instancing = true;      // foliage / batched instanced draws
+    public int ssaoSamples = 10;
+    public float ssaoRadius = 0.8f;
+    public float ssaoStrength = 0.9f;
+
     public RendererConfig() {}
 
     /** Preset from the project.json quality string ("LOW"/"MEDIUM"/"HIGH"/"ULTRA", case-insensitive). */

@@ -21,6 +21,7 @@ public final class EngineServices {
     public com.hollow.ai.AISystem ai;
     public com.hollow.anim.AnimationSystem anim;
     public com.hollow.ui.UIManager ui;
+    public final StreamingManager streaming = new StreamingManager();   // v2.0 world partition-lite
     public SaveSystem save;
     public Localization i18n;
     public InputActions input;

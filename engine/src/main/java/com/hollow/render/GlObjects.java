@@ -294,9 +294,15 @@ public final class GlObjects {
         public Texture2D depthTex;    // set when depthTexture=true
         public int depthRb;           // set when depthTexture=false
         public final boolean depthTexture;
+        public final boolean colorAndDepthTex;   // v2.0: both color + depth as textures
 
         private Fbo(int w, int h, boolean depthTexture){
+            this(w, h, depthTexture, false);
+        }
+
+        private Fbo(int w, int h, boolean depthTexture, boolean colorAndDepthTex){
             this.depthTexture = depthTexture;
+            this.colorAndDepthTex = colorAndDepthTex;
             width = Math.max(1, w);
             height = Math.max(1, h);
             int[] fb = new int[1];
@@ -322,14 +328,31 @@ public final class GlObjects {
                 color = new Texture2D(width, height);
                 GLES30.glFramebufferTexture2D(GLES30.GL_FRAMEBUFFER, GLES30.GL_COLOR_ATTACHMENT0,
                         GLES30.GL_TEXTURE_2D, color.id, 0);
-                int[] rb = new int[1];
-                GLES30.glGenRenderbuffers(1, rb, 0);
-                depthRb = rb[0];
-                GLES30.glBindRenderbuffer(GLES30.GL_RENDERBUFFER, depthRb);
-                GLES30.glRenderbufferStorage(GLES30.GL_RENDERBUFFER, GLES30.GL_DEPTH_COMPONENT24,
-                        width, height);
-                GLES30.glFramebufferRenderbuffer(GLES30.GL_FRAMEBUFFER, GLES30.GL_DEPTH_ATTACHMENT,
-                        GLES30.GL_RENDERBUFFER, depthRb);
+                if (colorAndDepthTex){
+                    // v2.0: depth as texture (for SSAO / decal reconstruction)
+                    int[] t = new int[1];
+                    GLES30.glGenTextures(1, t, 0);
+                    GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, t[0]);
+                    GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_NEAREST);
+                    GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_NEAREST);
+                    GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE);
+                    GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE);
+                    GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_DEPTH_COMPONENT24,
+                            width, height, 0, GLES30.GL_DEPTH_COMPONENT, GLES30.GL_UNSIGNED_INT, null);
+                    GLES30.glFramebufferTexture2D(GLES30.GL_FRAMEBUFFER, GLES30.GL_DEPTH_ATTACHMENT,
+                            GLES30.GL_TEXTURE_2D, t[0], 0);
+                    depthTex = new Texture2D(t[0], width, height);
+                    depthRb = 0;
+                } else {
+                    int[] rb = new int[1];
+                    GLES30.glGenRenderbuffers(1, rb, 0);
+                    depthRb = rb[0];
+                    GLES30.glBindRenderbuffer(GLES30.GL_RENDERBUFFER, depthRb);
+                    GLES30.glRenderbufferStorage(GLES30.GL_RENDERBUFFER, GLES30.GL_DEPTH_COMPONENT24,
+                            width, height);
+                    GLES30.glFramebufferRenderbuffer(GLES30.GL_FRAMEBUFFER, GLES30.GL_DEPTH_ATTACHMENT,
+                            GLES30.GL_RENDERBUFFER, depthRb);
+                }
             }
             int status = GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER);
             if (status != GLES30.GL_FRAMEBUFFER_COMPLETE)
@@ -340,6 +363,8 @@ public final class GlObjects {
 
         public static Fbo create(int w, int h){ return new Fbo(w, h, false); }
         public static Fbo createDepthOnly(int w, int h){ return new Fbo(w, h, true); }
+        /** v2.0: color texture + depth texture (SSAO / decals) */
+        public static Fbo createColorDepthTex(int w, int h){ return new Fbo(w, h, false, true); }
 
         public void bind(){
             GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, id);

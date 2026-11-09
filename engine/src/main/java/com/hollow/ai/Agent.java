@@ -57,6 +57,30 @@ public final class Agent extends Component {
 
     public void registerCheck(String name, Check c){ checks.put(name, c); }
     public void registerAction(String name, Action a){ actions.put(name, a); }
+
+    // ---- v2.0: crowd avoidance + EQS query cache -------------------------
+    public boolean avoid = false;                       // enable local crowd avoidance
+    public final CrowdAvoidance crowd = new CrowdAvoidance();
+    private final java.util.HashMap<String, EQS.Query> eqsCache = new java.util.HashMap<>();
+
+    /** loads (and caches) an EQS query from ai/*.eqs.json */
+    public EQS.Query query(String path){
+        EQS.Query q = eqsCache.get(path);
+        if(q != null) return q;
+        try {
+            String p = path.startsWith("ai/") ? path : "ai/" + path;
+            if(!p.endsWith(".eqs.json")) p += ".eqs.json";
+            com.hollow.assets.AssetDB db = assets();
+            if(db == null) return null;
+            com.hollow.core.FileSystem fs = db.fs;
+            if(!fs.exists(p)) return null;
+            q = EQS.parse(Json.parseObj(fs.readText(p)));
+            eqsCache.put(path, q);
+        } catch(Exception e){
+            Log.w("Agent", "eqs load failed: " + e.getMessage());
+        }
+        return q;
+    }
     public long seed(){
         com.hollow.game.EngineServices svc = services();
         return (svc != null ? svc.frameSeed : 0x1234L) ^ (entity != null ? entity.id * 0x9E3779B9L : 0);
@@ -78,6 +102,10 @@ public final class Agent extends Component {
     private com.hollow.assets.AssetDB assets(){
         com.hollow.game.EngineServices svc = services();
         return svc != null ? svc.assets : null;
+    }
+    private com.hollow.scene.World world(){
+        com.hollow.game.GameApp app = com.hollow.game.GameApp.instance;
+        return app != null ? app.world : null;
     }
 
     @Override public void onAttach(){
@@ -176,6 +204,32 @@ public final class Agent extends Component {
             return true;
         });
         actions.put("stop", (a, p) -> { a.hasMoveTarget = false; return true; });
+        // v2.0: EQS-driven movement (best point by query tests)
+        actions.put("eqs_move", (a, p) -> {
+            String qp = str(p.get("query"), "");
+            if(qp.isEmpty()) return true;
+            com.hollow.ai.EQS.Query q = a.query(qp);
+            if(q == null){ Log.w("Agent", "eqs query not found: " + qp); return true; }
+            com.hollow.ai.EQS.Result r = com.hollow.ai.EQS.run(q, a);
+            if(!r.found) return true;              // nothing valid — done
+            a.bb.set("eqs_x", (double)r.point.x);
+            a.bb.set("eqs_z", (double)r.point.z);
+            return a.moveTo(r.point, a.speed);
+        });
+        // v2.0: set blackboard from EQS without moving
+        actions.put("eqs_select", (a, p) -> {
+            String qp = str(p.get("query"), "");
+            com.hollow.ai.EQS.Query q = a.query(qp);
+            if(q == null) return true;
+            com.hollow.ai.EQS.Result r = com.hollow.ai.EQS.run(q, a);
+            a.bb.set("eqs_found", r.found);
+            if(r.found){
+                a.bb.set("eqs_x", (double)r.point.x);
+                a.bb.set("eqs_z", (double)r.point.z);
+                a.bb.set("eqs_score", (double)r.score);
+            }
+            return true;
+        });
     }
     private interface Animator0 { void play(String clip); }
     private static Animator0 animator(Agent a){
@@ -271,6 +325,12 @@ public final class Agent extends Component {
         if(dir.len2() < 1e-8f){ hasMoveTarget = false; return true; }
         dir.scale(spd / 60f); // per fixed tick
 
+        // v2.0: local crowd avoidance steering
+        if(avoid){
+            com.hollow.scene.World w0 = world();
+            if(w0 != null) dir = crowd.apply(dir, this, w0);
+        }
+
         // stuck detection
         stuckTimer += 1f/60f;
         if(stuckTimer > 0.5f){
@@ -343,5 +403,9 @@ public final class Agent extends Component {
         attackRange = n.flt("attackRange",1.6f);
         waypointLoop = n.bool("waypointLoop", true);
         state = n.str("state","patrol");
+        // v2.0
+        avoid = n.bool("avoid", false);
+        crowd.radius = n.flt("avoidRadius", 2.5f);
+        crowd.strength = n.flt("avoidStrength", 1f);
     }
 }

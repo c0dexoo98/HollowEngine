@@ -27,6 +27,13 @@ public final class Main {
                 case "run": Commands.run(args); break;
                 case "build": Commands.build(args); break;
                 case "clean": Commands.clean(arg(args, "-p", "project", 1)); break;
+                // v2.0 commands
+                case "profile": Commands.profile(args); break;
+                case "bench": Commands.bench(args); break;
+                case "net": Commands.netTest(args); break;
+                case "audio-render": Commands.audioRender(args); break;
+                case "eqs": Commands.eqsTest(args); break;
+                case "selftest": Commands.selfTest(); break;
                 default:
                     System.err.println("unknown command: " + cmd);
                     help();
@@ -67,7 +74,7 @@ public final class Main {
     }
 
     static void version(){
-        System.out.println("HollowEngine 1.0.0 (general-purpose, pure Java, Android + Linux CLI)");
+        System.out.println("HollowEngine 2.0.0 (general-purpose, pure Java, Android + Linux CLI)");
         System.out.println("Gradle modules: :engine :cli :runtime-android");
     }
 
@@ -84,6 +91,11 @@ public final class Main {
               validate -p <project>                full project lint (JSON, refs, components, scripts)
               tree -p <project> [-s scene]         print scene entity tree
               run -p <project> [--ticks N] [--assert file]   headless simulation + assertions
+              profile -p <project> [--ticks N] [--csv out.csv]   CPU zone profiler
+              bench -p <project> [--bodies N]      physics/AI throughput benchmark
+              audio-render -p <project> --out mix.wav [--seconds 5]  offline mixdown (full DSP chain)
+              eqs -p <project> --query <name>      evaluate an EQS query from the entry scene
+              net test                             in-process server/client loopback test
               build apk -p <project>               produce signed APK in dist/
               clean -p <project>                   remove build outputs
             

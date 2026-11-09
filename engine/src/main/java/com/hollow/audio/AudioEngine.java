@@ -30,6 +30,17 @@ public final class AudioEngine {
     private final ArrayList<Voice> voices = new ArrayList<>();
     private short[] mix = new short[8192];
 
+    // ---- v2.0 DSP chain ----
+    public final AudioFX.Reverb reverb = new AudioFX.Reverb();
+    public final AudioFX.Eq3 eq = new AudioFX.Eq3();
+    public final AudioFX.Compressor compressor = new AudioFX.Compressor();
+    public final AudioFX.Ducker ducker = new AudioFX.Ducker();
+    public boolean fxEnabled = true;
+    /** reverb send level per bus (master excluded) */
+    public final float[] busReverbSend = {0f, 0.05f, 0.15f, 0.35f, 0.1f};
+    private float[] fMix = new float[8192];       // float master accumulate
+    private float[] fWet = new float[8192];       // reverb send accumulate
+
     // scratch (avoid per-update allocation)
     private final Vec3 tmpRel = new Vec3();
     private final Vec3 tmpRight = new Vec3();
@@ -37,6 +48,7 @@ public final class AudioEngine {
     public void init(AssetDB assets, AudioOut out, int sampleRate){
         this.assets = assets; this.out = out; this.sampleRate = Math.max(8000, sampleRate);
         voices.clear();
+        eq.set(this.sampleRate, 0f, 0f, 0f);
         if(out != null) out.open(this.sampleRate);
         Log.i("Audio", "initialized (out=" + (out == null ? "null/headless" : out.getClass().getSimpleName()) + ")");
     }
@@ -101,6 +113,7 @@ public final class AudioEngine {
     /** mix one fixed step: advance all voices, mix into stereo 16-bit block, push to sink */
     public void update(float dt){
         if(dt <= 0) return;
+        updateMusicFade(dt);
         int frames = Math.round(sampleRate * dt);
         frames = MathX.clamp(frames, 1, sampleRate);
         // retire dead voices first (Handle.stop() kills voice next update)
@@ -122,15 +135,42 @@ public final class AudioEngine {
         }
         int needed = frames * 2;
         if(mix.length < needed) mix = new short[Math.max(needed, mix.length * 2)];
+        if(fMix.length < needed) fMix = new float[Math.max(needed, fMix.length * 2)];
+        if(fWet.length < needed) fWet = new float[Math.max(needed, fWet.length * 2)];
         java.util.Arrays.fill(mix, 0, needed, (short) 0);
+        java.util.Arrays.fill(fMix, 0, needed, 0f);
+        java.util.Arrays.fill(fWet, 0, needed, 0f);
+        boolean voiceActive = false;
         for(int i = voices.size() - 1; i >= 0; i--){
             Voice v = voices.get(i);
-            mixVoice(v, frames);
+            mixVoice(v, frames, fMix, fWet);
+            if(v.bus == BUS_VOICE && !v.finished) voiceActive = true;
             if(v.finished) retire(i);
+        }
+        // ---- v2.0 post chain: reverb -> EQ -> compressor -> ducking ----
+        if(fxEnabled){
+            reverb.process(fWet, frames);
+            float musicGain = ducker.update(voiceActive, sampleRate);
+            for(int s = 0; s < needed; s++) fMix[s] += fWet[s];
+            eq.process(fMix, frames);
+            compressor.process(fMix, frames, sampleRate);
+            // apply ducking retroactively to music contributions is impractical; instead
+            // musicGain scales the next block — for the current block we scale music voices
+            // already happened; ducking applies forward from next update (documented)
+            nextMusicGain = busVolume[BUS_MUSIC] * musicGain;
+        } else {
+            for(int s = 0; s < needed; s++) fMix[s] += fWet[s];
+            nextMusicGain = busVolume[BUS_MUSIC];
+        }
+        for(int s = 0; s < needed; s++){
+            int v = (int) MathX.clamp(fMix[s] * 32767f, Short.MIN_VALUE, Short.MAX_VALUE);
+            mix[s] = (short) v;
         }
         try { out.write(mix, frames); }
         catch(Exception e){ Log.w("Audio", "sink write failed: " + e.getMessage()); }
     }
+
+    private float nextMusicGain = 1f;   // ducking applied at voice-mix time (next block)
 
     public void shutdown(){
         voices.clear();
@@ -155,16 +195,18 @@ public final class AudioEngine {
         }
     }
 
-    /** mix one voice block into mix[]; per-block gain/pan (smooth enough at 30-120 Hz updates) */
-    private void mixVoice(Voice v, int frames){
+    /** mix one voice block into float master + reverb send; per-block gain/pan */
+    private void mixVoice(Voice v, int frames, float[] dst, float[] wet){
         AudioClipData c = v.clip;
         int ch = c.channels == 2 ? 2 : 1;
         int totalFrames = c.pcm.length / ch;
         double step = (double) c.sampleRate / sampleRate;
 
-        // bus chain: channel bus * master
-        float gain = v.baseVolume * busVolume[v.bus];
+        // bus chain: channel bus * master; music bus additionally ducked (v2.0)
+        float busVol = v.bus == BUS_MUSIC ? nextMusicGain : busVolume[v.bus];
+        float gain = v.baseVolume * busVol;
         if(v.bus != BUS_MASTER) gain *= busVolume[BUS_MASTER];
+        float send = v.bus != BUS_MASTER ? busReverbSend[Math.min(v.bus, busReverbSend.length - 1)] : 0f;
 
         float gl = 1f, gr = 1f;
         if(v.p.spatial){
@@ -199,10 +241,12 @@ public final class AudioEngine {
             float l = (sl + (sl1 - sl) * frac) * lgain;
             float r = (sr + (sr1 - sr) * frac) * rgain;
             int mi = f * 2;
-            int L = (int) mix[mi] + (int) (l * 32767f);
-            int R = (int) mix[mi + 1] + (int) (r * 32767f);
-            mix[mi] = (short) MathX.clamp(L, Short.MIN_VALUE, Short.MAX_VALUE);
-            mix[mi + 1] = (short) MathX.clamp(R, Short.MIN_VALUE, Short.MAX_VALUE);
+            dst[mi] += l;
+            dst[mi + 1] += r;
+            if(send > 0f){
+                wet[mi] += l * send;
+                wet[mi + 1] += r * send;
+            }
             v.cursor += step;
         }
     }
@@ -244,5 +288,97 @@ public final class AudioEngine {
         final Vec3 position = new Vec3();   // live 3D position (refreshed by AudioSource)
         boolean dead;
         boolean finished;
+    }
+
+    // ==================================================================
+    // v2.0: music crossfade + offline render
+    // ==================================================================
+
+    /** starts music on the music bus with a linear fade-in; previous music fades out over the same time */
+    private Handle musicA = null, musicB = null;
+    private float musicFade = -1f, musicFadeT = 0f;
+
+    public Handle playMusic(String path, float fadeSeconds){
+        Handle old = musicA != null && musicA.isPlaying() ? musicA : musicB;
+        Handle h = play(path, PlayParams.defaults().bus(BUS_MUSIC).loop());
+        if(old != null && fadeSeconds > 0f){
+            musicB = old;                    // fading out
+            musicA = h;
+            musicFade = Math.max(0.05f, fadeSeconds);
+            musicFadeT = 0f;
+        } else {
+            if(old != null) old.stop();
+            musicA = h;
+            musicB = null;
+            musicFade = -1f;
+        }
+        return h;
+    }
+
+    /** advance crossfade bookkeeping (called from update()) */
+    private void updateMusicFade(float dt){
+        if(musicFade <= 0f || (musicA == null && musicB == null)) return;
+        musicFadeT += dt;
+        float t = MathX.clamp(musicFadeT / musicFade, 0f, 1f);
+        if(musicA != null && musicA.isPlaying()) musicA.setVolume(t);
+        if(musicB != null && musicB.isPlaying()) musicB.setVolume(1f - t);
+        if(t >= 1f){
+            if(musicB != null){ musicB.stop(); musicB = null; }
+            musicFade = -1f;
+        }
+    }
+
+    /** one scheduled clip for offline rendering */
+    public static final class Cue {
+        public final String path;
+        public final double startSec;
+        public final PlayParams params;
+        public Cue(String path, double startSec, PlayParams params){
+            this.path = path; this.startSec = startSec; this.params = params;
+        }
+    }
+
+    /** collecting sink for offline rendering */
+    public static final class CollectOut implements AudioOut {
+        public final java.util.ArrayList<short[]> blocks = new java.util.ArrayList<>();
+        public int sampleRate = 44100;
+        @Override public void open(int sr){ sampleRate = sr; }
+        @Override public void write(short[] data, int frames){
+            short[] c = new short[frames * 2];
+            System.arraycopy(data, 0, c, 0, c.length);
+            blocks.add(c);
+        }
+        @Override public void close(){}
+        public int totalFrames(){ int n = 0; for(short[] b : blocks) n += b.length / 2; return n; }
+        /** de-interleave into stereo short arrays [L][R] */
+        public short[] toInterleaved(){
+            short[] out = new short[totalFrames() * 2];
+            int o = 0;
+            for(short[] b : blocks){ System.arraycopy(b, 0, out, o, b.length); o += b.length; }
+            return out;
+        }
+    }
+
+    /** deterministic offline mixdown (CLI `hollow audio-render`) — renders `seconds` of
+     *  the scheduled cues through the FULL v2.0 chain (spatialization, reverb, EQ,
+     *  compressor, ducking). Returns interleaved 16-bit stereo PCM. */
+    public static short[] renderOffline(AssetDB assets, int sampleRate, java.util.List<Cue> cues, double seconds){
+        AudioEngine eng = new AudioEngine();
+        CollectOut sink = new CollectOut();
+        eng.init(assets, sink, sampleRate);
+        final double STEP = 1.0 / 60.0;
+        java.util.ArrayList<Cue> pending = new java.util.ArrayList<>(cues);
+        pending.sort((a, b) -> Double.compare(a.startSec, b.startSec));
+        double t = 0;
+        while(t < seconds){
+            while(!pending.isEmpty() && pending.get(0).startSec <= t + 1e-9){
+                Cue c = pending.remove(0);
+                eng.play(c.path, c.params != null ? c.params : PlayParams.defaults());
+            }
+            eng.updateMusicFade((float) STEP);
+            eng.update((float) STEP);
+            t += STEP;
+        }
+        return sink.toInterleaved();
     }
 }

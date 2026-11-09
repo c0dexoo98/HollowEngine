@@ -60,6 +60,7 @@ public final class CharacterController extends Component {
     @Override public void onUpdate(float dt){
         PhysicsWorld pw = physics();
         if(pw != null && entity != null){
+            pw.registerController(this);   // v2.0: self-registration (spawned controllers)
             pw.stepController(this, dt);
             pw.groundCheck(this);
         }

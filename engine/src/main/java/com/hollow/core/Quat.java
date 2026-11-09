@@ -65,6 +65,13 @@ public final class Quat {
         }
         return this;
     }
+    /** inverse (conjugate/norm²) — HollowEngine 2.0 */
+    public Quat invert(){
+        float l2 = x*x+y*y+z*z+w*w;
+        if(l2 < 1e-12f){ return identity(); }
+        float inv = 1f/l2;
+        return set(-x*inv, -y*inv, -z*inv, w*inv);
+    }
     public Vec3 rotate(Vec3 v){
         // v' = q * v * q^-1 (optimized)
         float qx=x, qy=y, qz=z, qw=w;

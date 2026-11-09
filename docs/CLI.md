@@ -33,3 +33,24 @@ hollow clean -p <project>                   پاک‌سازی خروجی‌ها�
 - `ANDROID_SDK_ROOT` — مسیر SDK (پیش‌فرض /home/z/android-sdk)
 - `HE_GRADLE_BIN` — باینری gradle سفارشی (در سندباکس‌هایی که wrapper کند است)
 - `HE_GRADLE_ARGS` — آرگومان‌های اضافه برای gradle
+
+## فرمان‌های v2.0
+
+```bash
+hollow selftest                                    # ۹ تست واحد موتور (ریاضی/بلنداسپیس/IK/reverb/EQ/کمپرسور/profiler/wav)
+hollow profile -p proj --ticks 600 --csv out.csv   # پروفایلر زونه‌ای (anim/ai/physics/...) + خروجی CSV
+hollow bench -p proj --bodies 150 --ticks 600      # بنچمارک فیزیک با اجسام داینامیک
+hollow net test                                    # loopback کامل سرور/کلاینت (WELCOME/snapshot/interpolation)
+hollow audio-render -p proj --seconds 5 --out mix.wav   # میکس آفلاین با کل زنجیره DSP → WAV
+hollow eqs -p proj --query cover                   # اجرای کوئری EQS از صحنه ورودی
+hollow run -p proj --scene scenes/other.json       # اجرای headless با صحنه دلخواه
+```
+
+### اسکیماهای JSON جدید
+
+- `anim/*.blendspace.json` — Blend Space 1D/2D (axis1/axis2 + samples)
+- `ai/*.eqs.json` — کوئری EQS (generator + tests با weight)
+- کامپوننت‌های صحنه: `DistanceJoint` / `SpringJoint` / `HingeJoint` / `Attachment` / `FootIK` / `Foliage` / `Decal` / `StreamingVolume`
+- `ParticleEmitter`: `trail`, `trailMinDist`, `trailSpacing`, `deathEffect`, `collide`, `collideKill`, `collideBounce`
+- `RendererConfig` (project.json quality): `ibl`, `ssao`, `decals`, `instancing` + `ssaoSamples/Radius/Strength`
+- انواع assert در `hollow run --assert`: `body_at_rest`, `body_below_y`, `bodies_asleep_at_least`, `eqs_found`, `cells_loaded`, `event_seen`

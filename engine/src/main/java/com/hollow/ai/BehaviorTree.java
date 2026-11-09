@@ -46,6 +46,7 @@ public final class BehaviorTree {
         float elapsed;
         float waitTarget = -1f;
         int count;
+        int[] order;                    // random_selector shuffle order
     }
     private final Map<String, NS> state = new HashMap<>();
     private long salt;
@@ -113,6 +114,7 @@ public final class BehaviorTree {
         try {
             switch(n.type){
                 case "selector": return runSelector(n, a, dt);
+                case "random_selector": return runRandomSelector(n, a, dt);
                 case "sequence": return runSequence(n, a, dt);
                 case "parallel": return runParallel(n, a, dt);
                 case "inverter": {
@@ -121,6 +123,61 @@ public final class BehaviorTree {
                     if(r == SUCCESS) return FAILURE;
                     if(r == FAILURE) return SUCCESS;
                     return RUNNING;
+                }
+                case "force_success": {
+                    if(n.children.isEmpty()) return FAILURE;
+                    int r = run(n.children.get(0), a, dt);
+                    return r == RUNNING ? RUNNING : SUCCESS;
+                }
+                case "force_failure": {
+                    if(n.children.isEmpty()) return SUCCESS;
+                    int r = run(n.children.get(0), a, dt);
+                    return r == RUNNING ? RUNNING : FAILURE;
+                }
+                case "cooldown": {
+                    NS s = ns(n.id);
+                    if(s.elapsed > 0f){
+                        s.elapsed -= dt;
+                        return FAILURE;
+                    }
+                    int r = run(n.children.get(0), a, dt);
+                    if(r == SUCCESS){
+                        s.elapsed = n.seconds >= 0f ? n.seconds : 1f;
+                        resetSub(n.children.get(0));
+                    }
+                    return r;
+                }
+                case "time_limit": {
+                    NS s = ns(n.id);
+                    s.elapsed += dt;
+                    float lim = n.seconds >= 0f ? n.seconds : 5f;
+                    if(s.elapsed > lim){
+                        s.elapsed = 0f;
+                        resetSub(n.children.get(0));
+                        return FAILURE;
+                    }
+                    int r = run(n.children.get(0), a, dt);
+                    if(r != RUNNING) s.elapsed = 0f;
+                    return r;
+                }
+                case "service": {
+                    // runs child action every N seconds without blocking (returns child status)
+                    NS s = ns(n.id);
+                    s.elapsed += dt;
+                    float period = n.seconds >= 0f ? n.seconds : 1f;
+                    if(s.elapsed >= period){
+                        s.elapsed = 0f;
+                        String name = n.action;
+                        if(name != null){
+                            Agent.Action act = a.actions.get(name);
+                            if(act != null){
+                                a.nodeParams = n.params;
+                                a.nodeRaw = n.raw;
+                                act.run(a, n.params);
+                            }
+                        }
+                    }
+                    return n.children.isEmpty() ? SUCCESS : run(n.children.get(0), a, dt);
                 }
                 case "repeat": return runRepeat(n, a, dt);
                 case "wait": return runWait(n, a, dt);
@@ -188,6 +245,45 @@ public final class BehaviorTree {
             }
         }
         s.childIdx = -1;
+        return FAILURE;
+    }
+
+    /** shuffled priority selector — reshuffles once per entry (memory-of-choice semantics) */
+    private int runRandomSelector(BTNode n, Agent a, float dt){
+        NS s = ns(n.id);
+        if(s.count == 0 || s.childIdx < 0){
+            // fresh entry: build a shuffled order
+            if(s.order == null || s.order.length != n.children.size()){
+                s.order = new int[n.children.size()];
+            }
+            for(int i = 0; i < s.order.length; i++) s.order[i] = i;
+            long seed = a.seed() ^ n.id.hashCode() ^ (salt * 0x9E3779B97F4A7C15L) ^ (a.entity != null ? a.entity.id * 7919L : 0L);
+            MathX.Rng rng = new MathX.Rng(seed);
+            for(int i = s.order.length - 1; i > 0; i--){
+                int j = rng.nextInt(i + 1);
+                int tmp = s.order[i]; s.order[i] = s.order[j]; s.order[j] = tmp;
+            }
+            s.childIdx = 0;
+            s.count = 1;
+        }
+        int prevRunning = s.childIdx;
+        while(s.childIdx < n.children.size()){
+            String child = n.children.get(s.order[s.childIdx]);
+            int r = run(child, a, dt);
+            if(r == RUNNING){
+                if(prevRunning >= 0 && prevRunning != s.childIdx) resetSub(n.children.get(s.order[prevRunning]));
+                return RUNNING;
+            }
+            if(r == SUCCESS){
+                if(prevRunning >= 0 && prevRunning != s.childIdx) resetSub(n.children.get(s.order[prevRunning]));
+                s.childIdx = -1;
+                s.count = 0;
+                return SUCCESS;
+            }
+            s.childIdx++;
+        }
+        s.childIdx = -1;
+        s.count = 0;
         return FAILURE;
     }
 

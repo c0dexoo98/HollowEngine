@@ -27,6 +27,9 @@ public final class ParticleLibrary {
         float[] sizeT, sizeV;
         float[][] colorKeys;   // rows {t, r, g, b, a}
         boolean curvesParsed = false;
+        // v2.0: trail state
+        final Vec3 lastSpawnPos = new Vec3();
+        boolean trailInit = false;
         Instance(ParticleEmitter src){ this.src = src; }
     }
 
@@ -95,22 +98,87 @@ public final class ParticleLibrary {
             }
         } else inst.spawnAccum = 0f;
 
+        // v2.0: trail mode — spawn along entity movement (min distance between spawns)
+        if(src.trail){
+            Vec3 wp = ent.worldPosition();
+            if(!inst.trailInit){ inst.lastSpawnPos.set(wp); inst.trailInit = true; }
+            if(wp.dist2(inst.lastSpawnPos) >= src.trailMinDist * src.trailMinDist){
+                Vec3 step = wp.cpy().sub(inst.lastSpawnPos);
+                float d = step.len();
+                int n = MathX.clamp((int)(d / Math.max(0.05f, src.trailSpacing)), 1, 16);
+                for(int k = 0; k < n; k++){
+                    Vec3 at = inst.lastSpawnPos.cpy().addScaled(step, (k + 1f) / n);
+                    spawn(inst, 1, rng, at);
+                }
+                inst.lastSpawnPos.set(wp);
+            }
+        }
+
         // integrate + age
         float gx = src.gravity.x, gy = src.gravity.y, gz = src.gravity.z;
         float damp = Math.max(0f, 1f - src.drag * dt);
+        com.hollow.physics.PhysicsWorld phys = src.collide ? physics() : null;
         for(int i = inst.particles.size() - 1; i >= 0; i--){
             float[] p = inst.particles.get(i);
             p[6] += dt;                                   // age
             if(p[6] >= p[7]){                             // kill at maxLife
+                // v2.0: death sub-emitter burst
+                if(src.deathEffect != null && !src.deathEffect.isEmpty()){
+                    deathBurst(src, p);
+                }
                 inst.particles.remove(i);
                 live--;
                 continue;
             }
-            p[0] += p[3] * dt; p[1] += p[4] * dt; p[2] += p[5] * dt;
+            float nx = p[0] + p[3] * dt;
+            float ny = p[1] + p[4] * dt;
+            float nz = p[2] + p[5] * dt;
+            // v2.0: world collision (raycast the segment; kill or bounce)
+            if(phys != null){
+                seg.set(p[0], p[1], p[2]);
+                segDir.set(nx - p[0], ny - p[1], nz - p[2]);
+                float segLen = segDir.len();
+                if(segLen > 1e-6f){
+                    com.hollow.physics.PhysicsWorld.Hit hit = phys.raycast(seg, segDir, segLen + src.collideRadius);
+                    if(hit.hit && hit.distance <= segLen + src.collideRadius){
+                        if(src.collideKill){
+                            if(src.deathEffect != null && !src.deathEffect.isEmpty()) deathBurst(src, p);
+                            inst.particles.remove(i);
+                            live--;
+                            continue;
+                        }
+                        // bounce: reflect velocity around hit normal, dampen
+                        float vn = p[3] * hit.normal.x + p[4] * hit.normal.y + p[5] * hit.normal.z;
+                        p[3] -= 2f * vn * hit.normal.x;
+                        p[4] -= 2f * vn * hit.normal.y;
+                        p[5] -= 2f * vn * hit.normal.z;
+                        p[3] *= src.collideBounce; p[4] *= src.collideBounce; p[5] *= src.collideBounce;
+                        nx = p[0] + p[3] * dt;
+                        ny = p[1] + p[4] * dt;
+                        nz = p[2] + p[5] * dt;
+                    }
+                }
+            }
+            p[0] = nx; p[1] = ny; p[2] = nz;
             p[3] = (p[3] + gx * dt) * damp;
             p[4] = (p[4] + gy * dt) * damp;
             p[5] = (p[5] + gz * dt) * damp;
         }
+    }
+
+    private final Vec3 seg = new Vec3();
+    private final Vec3 segDir = new Vec3();
+
+    /** v2.0: fire the death sub-emitter effect at a particle position (recursive depth-safe:
+     *  effects that trigger themselves are blocked by the effect-name != deathEffect check) */
+    private void deathBurst(ParticleEmitter src, float[] p){
+        Vec3 pos = new Vec3(p[0], p[1], p[2]);
+        burst(src.deathEffect, pos);
+    }
+
+    private static com.hollow.physics.PhysicsWorld physics(){
+        com.hollow.game.GameApp app = com.hollow.game.GameApp.instance;
+        return app != null && app.services() != null ? app.services().physics : null;
     }
 
     private void spawn(Instance inst, int count, MathX.Rng rng, Vec3 overridePos){

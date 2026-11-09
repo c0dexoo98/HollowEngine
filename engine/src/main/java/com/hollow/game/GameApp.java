@@ -2,6 +2,7 @@ package com.hollow.game;
 
 import com.hollow.core.Log;
 import com.hollow.core.Time;
+import com.hollow.core.Vec3;
 import com.hollow.scene.Entity;
 import com.hollow.scene.Scene;
 import com.hollow.scene.World;
@@ -99,13 +100,34 @@ public abstract class GameApp {
         for(int i=0;i<steps;i++){
             svc.time.advanceFixed();
             svc.frameSeed = 0x9E3779B97F4A7C15L ^ (svc.time.tick * 0xB5297A4D);
+            int z;
+            z = com.hollow.core.Profiler.begin("anim");
             svc.anim.update(svc.time.fixedDelta, world);
+            com.hollow.core.Profiler.end(z);
+            z = com.hollow.core.Profiler.begin("ai");
             svc.ai.update(svc.time.fixedDelta, world);
+            com.hollow.core.Profiler.end(z);
+            z = com.hollow.core.Profiler.begin("physics");
             svc.physics.update(svc.time.fixedDelta);
+            com.hollow.core.Profiler.end(z);
+            z = com.hollow.core.Profiler.begin("particles");
             svc.particles.update(svc.time.fixedDelta);
+            com.hollow.core.Profiler.end(z);
+            z = com.hollow.core.Profiler.begin("sequencer");
             svc.sequencer.update(svc.time.fixedDelta);
+            com.hollow.core.Profiler.end(z);
+            z = com.hollow.core.Profiler.begin("audio");
             svc.audio.update(svc.time.fixedDelta);
+            com.hollow.core.Profiler.end(z);
+            z = com.hollow.core.Profiler.begin("world");
             world.update(svc.time.fixedDelta);
+            com.hollow.core.Profiler.end(z);
+            // v2.0 world streaming (throttled internally)
+            z = com.hollow.core.Profiler.begin("streaming");
+            Vec3 listener = activeCamera != null ? activeCamera.worldPosition()
+                          : (player != null ? player.worldPosition() : null);
+            if(listener != null) svc.streaming.update(svc.time.fixedDelta, world, listener);
+            com.hollow.core.Profiler.end(z);
             onFixedUpdate(svc.time.fixedDelta);
         }
         svc.events.flush();
@@ -113,6 +135,7 @@ public abstract class GameApp {
         // per-frame systems
         svc.ui.update(svc.time.deltaTime);
         svc.input.update(svc.time.deltaTime);
+        com.hollow.core.Profiler.frame();
         onFrameUpdate(svc.time.deltaTime);
         svc.time.frame++;
     }

@@ -17,9 +17,11 @@ import com.hollow.core.NativeFS;
 import com.hollow.physics.BoxCollider;
 import com.hollow.physics.CapsuleCollider;
 import com.hollow.physics.CharacterController;
+import com.hollow.physics.Joints;
 import com.hollow.physics.PhysicsWorld;
 import com.hollow.physics.RigidBody;
 import com.hollow.physics.SphereCollider;
+import com.hollow.scene.Entity;
 import com.hollow.scene.Scene;
 import com.hollow.scene.World;
 import com.hollow.script.EventBus;
@@ -87,13 +89,33 @@ public final class EngineBootstrap {
         w.componentRegistry.put("AudioSource", AudioSource::new);
         w.componentRegistry.put("ParticleEmitter", ParticleEmitter::new);
         w.componentRegistry.put("Script", ScriptComponent::new);
+        // v2.0 components
+        w.componentRegistry.put("DistanceJoint", Joints.Distance::new);
+        w.componentRegistry.put("SpringJoint", Joints.Spring::new);
+        w.componentRegistry.put("HingeJoint", Joints.Hinge::new);
+        w.componentRegistry.put("Attachment", com.hollow.anim.Attachment::new);
+        w.componentRegistry.put("FootIK", com.hollow.anim.FootIK::new);
+        w.componentRegistry.put("Foliage", com.hollow.render.FoliageComponent::new);
+        w.componentRegistry.put("Decal", com.hollow.render.DecalComponent::new);
+        w.componentRegistry.put("StreamingVolume", com.hollow.game.StreamingVolume::new);
     }
 
     /** after a world loads: physics statics, agent setup, script start events */
     public static void onWorldLoaded(EngineServices svc, World w){
         registerModuleComponents(w);
         svc.physics.onWorldLoaded(w);
+        svc.streaming.collect(w);
         svc.particles.clear();
+        // v2.0: auto-assign the active camera (tag "camera" or any Camera component)
+        if(svc.app != null && svc.app.activeCamera == null && w != null){
+            for(Entity e : w.entities){
+                if(e.destroyed) continue;
+                if("camera".equals(e.tag) || e.has("Camera")){
+                    svc.app.activeCamera = e;
+                    break;
+                }
+            }
+        }
         // agents/scripts pick up via onAttach; fire start event
         svc.events.fire("world_loaded");
     }

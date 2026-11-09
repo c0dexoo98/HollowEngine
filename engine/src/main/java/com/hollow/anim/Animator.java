@@ -11,6 +11,8 @@ import com.hollow.core.Quat;
 import com.hollow.core.Vec3;
 import com.hollow.scene.Component;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 /** Skeletal animation player (Agent C implementation).
@@ -35,6 +37,54 @@ public final class Animator extends Component {
     public boolean playing = false;
     /** joint matrices (skin-space) written each update; length 16*jointCount */
     public float[] jointMatrices = null;
+
+    // --- v2.0: blend space playback ---------------------------------
+    private BlendSpace blendSpace;
+    private String blendSpacePath = "";
+    public float blendX, blendY;              // parameter values (set per-frame)
+    private boolean blendActive = false;
+    private final BlendSpace.Weighted bw = new BlendSpace.Weighted();
+    private final BlendSpace.Weighted prevBw = new BlendSpace.Weighted();
+
+    // --- v2.0: anim notifies -----------------------------------------
+    public static final class Notify {
+        public String clip;
+        public float t;
+        public String event;
+    }
+    public final List<Notify> notifies = new ArrayList<>();
+    private float lastNotifyTime = -1f;
+
+    // --- v2.0: foot IK hook ------------------------------------------
+    private FootIK footIK;
+
+    /** play a blend space (anim/blendspace JSON). Subsequent frames: update blendX/blendY.
+     *  Set speed=1, loop=true. Clips crossfade in via blend weights automatically. */
+    public void playBlendSpace(String path){
+        com.hollow.game.EngineServices svc = services();
+        if(svc == null || path == null || path.isEmpty()) return;
+        BlendSpace bs = svc.assets.blendSpace(path);
+        if(bs == null || bs.samples.isEmpty()){
+            com.hollow.core.Log.w("Animator", "blendspace not found: " + path);
+            return;
+        }
+        blendSpace = bs;
+        blendSpacePath = path;
+        blendActive = true;
+        playing = true;
+        endFired = false;
+        restWritten = false;
+        prevClip = "";
+        fadeDur = 0f;
+    }
+
+    public void stopBlendSpace(){
+        blendActive = false;
+        blendSpace = null;
+    }
+
+    public boolean isBlendActive(){ return blendActive && blendSpace != null; }
+    public String blendSpacePath(){ return blendSpacePath; }
 
     // --- runtime (not serialized) ---
     private boolean loaded;
@@ -130,6 +180,14 @@ public final class Animator extends Component {
         if(clip == null) clip = fallbackClip();
         if(clip == null){ writeRestPose(); restWritten = true; playing = false; return; }
 
+        // ---- blend space path: weighted multi-clip sampling ----------------
+        if(blendActive && blendSpace != null){
+            BlendSpace.Weighted wres = blendSpace.sample(blendX, blendY);
+            animateBlend(wres, dt);
+            fireNotifies(dt);
+            return;
+        }
+
         time += dt * speed;
         if(clip.duration > 0f){
             if(loop){
@@ -171,6 +229,8 @@ public final class Animator extends Component {
         sampleClip(clip, time);
         if(blending) blendClip(prev, prevTime, w);
 
+        applyFootIK();
+
         // local matrices
         for(int i = 0; i < jointCount; i++)
             localMats[i].set(Mat4.trs(sPos[i], sRot[i], sScl[i]));
@@ -183,6 +243,119 @@ public final class Animator extends Component {
             System.arraycopy(scratch.m, 0, jointMatrices, 16 * i, 16);
         }
         if(!blending) prevClip = "";
+        fireNotifies(dt);
+    }
+
+    /** v2.0: weighted blend-space animation (up to 4 clips, inverse-distance weights) */
+    private void animateBlend(BlendSpace.Weighted wr, float dt){
+        if(wr.count == 0){ writeRestPose(); restWritten = true; return; }
+        // advance per-clip clocks
+        for(int i = 0; i < wr.count; i++){
+            AnimClip c = clips.get(wr.clips[i]);
+            if(c == null) continue;
+            Float tObj = clipClocks.get(wr.clips[i]);
+            float t = (tObj == null ? 0f : tObj) + dt * speed * wr.baseSpeeds[i];
+            if(c.duration > 0f) t %= c.duration;
+            clipClocks.put(wr.clips[i], t);
+        }
+        // rest pose defaults
+        for(int i = 0; i < jointCount; i++){
+            Skeleton.Joint j = skeleton.joints.get(i);
+            sPos[i].set(j.restPos);
+            sRot[i].set(j.restRot);
+            sScl[i].set(j.restScale);
+        }
+        // accumulate weighted samples (back-to-front: smallest weight first so dominant wins)
+        for(int i = wr.count - 1; i >= 0; i--){
+            AnimClip c = clips.get(wr.clips[i]);
+            if(c == null) continue;
+            float t = clipClocks.getOrDefault(wr.clips[i], 0f);
+            float wgt = wr.weights[i];
+            for(Map.Entry<Integer, AnimClip.Channel> e : c.channels.entrySet()){
+                int ji = e.getKey();
+                if(ji < 0 || ji >= jointCount) continue;
+                AnimClip.Channel ch = e.getValue();
+                if(ch.times == null || ch.times.length == 0) continue;
+                if(ch.translations != null && ch.translations.length >= 3){
+                    c.sampleTranslation(ch, t, tr);
+                    sPos[ji].set(MathX.lerp(sPos[ji].x, tr[0], wgt), MathX.lerp(sPos[ji].y, tr[1], wgt), MathX.lerp(sPos[ji].z, tr[2], wgt));
+                }
+                if(ch.scales != null && ch.scales.length >= 3){
+                    c.sampleScale(ch, t, sc);
+                    sScl[ji].set(MathX.lerp(sScl[ji].x, sc[0], wgt), MathX.lerp(sScl[ji].y, sc[1], wgt), MathX.lerp(sScl[ji].z, sc[2], wgt));
+                }
+                if(ch.rotations != null && ch.rotations.length >= 4){
+                    c.sampleRotation(ch, t, bwQuat);
+                    sRot[ji].slerp(bwQuat, wgt);
+                }
+            }
+        }
+        applyFootIK();
+        for(int i = 0; i < jointCount; i++)
+            localMats[i].set(Mat4.trs(sPos[i], sRot[i], sScl[i]));
+        computeWorld();
+        for(int i = 0; i < jointCount; i++){
+            scratch.set(worldMats[i]).mul(invBind[i]);
+            System.arraycopy(scratch.m, 0, jointMatrices, 16 * i, 16);
+        }
+        // remember weights for notify association
+        prevBw.count = wr.count;
+        for(int i = 0; i < wr.count; i++){
+            prevBw.clips[i] = wr.clips[i];
+            prevBw.weights[i] = wr.weights[i];
+            prevBw.baseSpeeds[i] = wr.baseSpeeds[i];
+        }
+    }
+
+    private final java.util.HashMap<String, Float> clipClocks = new java.util.HashMap<>();
+    private final Quat bwQuat = new Quat();
+
+    /** v2.0: fire notifies whose time was crossed this frame (current clip or blend clips) */
+    private void fireNotifies(float dt){
+        if(notifies.isEmpty()) return;
+        com.hollow.game.EngineServices svc = services();
+        if(svc == null || svc.events == null) return;
+        float now = isBlendActive() ? blendClock() : time;
+        String curClip = isBlendActive() ? "" : currentClip;
+        if(now < lastNotifyTime){ lastNotifyTime = -1f; }         // loop wrap
+        for(Notify n : notifies){
+            if(n.event == null || n.event.isEmpty()) continue;
+            if(!curClip.isEmpty() && n.clip != null && !n.clip.isEmpty() && !n.clip.equals(curClip)) continue;
+            if(n.t > lastNotifyTime && n.t <= now){
+                Map<String,Object> data = new java.util.LinkedHashMap<>();
+                data.put("event", n.event);
+                data.put("clip", n.clip == null ? curClip : n.clip);
+                svc.events.fire(n.event, data);
+            }
+        }
+        lastNotifyTime = now;
+    }
+
+    /** pseudo-clock for blend mode (max contributing clip clock) — notifies use it */
+    private float blendClock(){
+        float mx = 0f;
+        for(Float f : clipClocks.values()) if(f != null && f > mx) mx = f;
+        return mx;
+    }
+
+    /** v2.0: world-space transform of a bone (socket). null if bone unknown. */
+    public boolean boneWorldTransform(String boneName, Mat4 out){
+        if(entity == null || skeleton == null || worldMats == null) return false;
+        int ji = skeleton.indexOf(boneName);
+        if(ji < 0 || ji >= jointCount) return false;
+        entity.updateWorld();
+        out.set(entity.worldMatrix).mul(worldMats[ji]);
+        return true;
+    }
+
+    /** v2.0: FootIK hook — shifts hip joint vertically by raycast result */
+    private void applyFootIK(){
+        if(footIK == null) footIK = entity != null ? entity.get(FootIK.class) : null;
+        if(footIK == null || !footIK.enabled) return;
+        int hip = footIK.hipJoint(skeleton);
+        if(hip < 0) return;
+        float off = footIK.consumeHipOffset();
+        if(Math.abs(off) > 1e-5f) sPos[hip].y += off;
     }
 
     private void sampleClip(AnimClip clip, float t){
@@ -280,7 +453,16 @@ public final class Animator extends Component {
 
     @Override public void save(JsonW w){
         w.obj(); w.kv("type","Animator").kv("model",modelPath).kv("clip",currentClip)
-          .kv("loop",loop).kv("speed",speed).kv("crossfade",crossfade).kv("autoplay",playing); w.endObj();
+          .kv("loop",loop).kv("speed",speed).kv("crossfade",crossfade).kv("autoplay",playing);
+        if(blendSpacePath != null && !blendSpacePath.isEmpty()) w.kv("blendSpace",blendSpacePath);
+        if(!notifies.isEmpty()){
+            w.key("notifies"); w.arr();
+            for(Notify n : notifies){
+                w.obj(); w.kv("clip", n.clip == null ? "" : n.clip).kv("t", n.t).kv("event", n.event); w.endObj();
+            }
+            w.endArr();
+        }
+        w.endObj();
     }
     @Override public void load(JsonV n){
         modelPath = n.str("model", n.str("modelPath", ""));
@@ -289,6 +471,20 @@ public final class Animator extends Component {
         speed = n.flt("speed",1f);
         crossfade = n.flt("crossfade",0.25f);
         playing = n.bool("autoplay", n.bool("playing", false));
-        if(playing && !currentClip.isEmpty()) play(currentClip);
+        String bs = n.str("blendSpace","");
+        if(!bs.isEmpty()){
+            blendSpacePath = bs;
+            playBlendSpace(bs);
+        }
+        for(Object o : n.list("notifies")){
+            if(!(o instanceof Map)) continue;
+            @SuppressWarnings("unchecked") Map<String,Object> m = (Map<String,Object>)o;
+            Notify nn = new Notify();
+            nn.clip = com.hollow.core.Json.str(m.get("clip"), "");
+            nn.t = (float)com.hollow.core.Json.num(m.get("t"), 0);
+            nn.event = com.hollow.core.Json.str(m.get("event"), "");
+            notifies.add(nn);
+        }
+        if(playing && !currentClip.isEmpty() && !isBlendActive()) play(currentClip);
     }
 }

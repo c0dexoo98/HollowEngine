@@ -74,6 +74,16 @@ public final class PbrRenderer {
     private GlObjects.Shader depthShader, pbrShader, waterShader, skyShader, spriteShader,
             particleShader, flatShader, uiShader, brightShader, blurShader, compositeShader;
     private GlObjects.Fbo sceneFbo, shadowFbo, brightFbo, blurFbo;
+    // v2.0
+    private GlObjects.Shader ssaoShader, decalShader;
+    private GlObjects.Fbo ssaoFbo, decalFboA, decalFboB;
+    private final FoliageSystem foliage = new FoliageSystem();
+    private World foliageWorld;
+    private IBLData ibl;
+    private String iblKey = "";
+    private int irrTexId = 0, prefTexId = 0, dfgTexId = 0;
+    private boolean iblUploaded = false;
+    private final ArrayList<Entity> decalList = new ArrayList<>();
     private GlObjects.VertexArray particleVao, uiVao, lineVao;
     private GlObjects.Vbo particleVbo, uiVbo, lineVbo;
 
@@ -212,12 +222,26 @@ public final class PbrRenderer {
         brightShader    = new GlObjects.Shader("bright", Shaders.POST_VS, Shaders.BRIGHT_FS);
         blurShader      = new GlObjects.Shader("blur", Shaders.POST_VS, Shaders.BLUR_FS);
         compositeShader = new GlObjects.Shader("composite", Shaders.POST_VS, Shaders.COMPOSITE_FS);
+        // v2.0 passes (non-fatal if they fail — fallback path used)
+        try {
+            ssaoShader  = new GlObjects.Shader("ssao", Shaders.SSAO_VS, Shaders.SSAO_FS);
+            decalShader = new GlObjects.Shader("decal", Shaders.DECAL_VS, Shaders.DECAL_FS);
+        } catch(Throwable t){ Log.w(TAG, "v2.0 shader init failed: " + t.getMessage()); }
 
-        sceneFbo  = GlObjects.Fbo.create(renderW, renderH);
+        boolean depthTexNeeded = cfg.ssao || cfg.decals;
+        sceneFbo  = depthTexNeeded ? GlObjects.Fbo.createColorDepthTex(renderW, renderH)
+                                   : GlObjects.Fbo.create(renderW, renderH);
         shadowFbo = GlObjects.Fbo.createDepthOnly(cfg.shadowMapSize, cfg.shadowMapSize);
         int bw = Math.max(1, renderW / 4), bh = Math.max(1, renderH / 4);
         brightFbo = GlObjects.Fbo.create(bw, bh);
         blurFbo   = GlObjects.Fbo.create(bw, bh);
+        if(cfg.ssao && ssaoShader != null && ssaoShader.ok())
+            ssaoFbo = GlObjects.Fbo.create(Math.max(1, renderW / 2), Math.max(1, renderH / 2));
+        if(cfg.decals && decalShader != null && decalShader.ok()){
+            decalFboA = GlObjects.Fbo.createColorDepthTex(renderW, renderH);
+            decalFboB = GlObjects.Fbo.createColorDepthTex(renderW, renderH);
+        }
+        if(cfg.instancing) foliage.initGl();
 
         particleVao = new GlObjects.VertexArray();
         particleVbo = new GlObjects.Vbo();
@@ -269,6 +293,9 @@ public final class PbrRenderer {
         sceneFbo.resize(renderW, renderH);
         brightFbo.resize(Math.max(1, renderW / 4), Math.max(1, renderH / 4));
         blurFbo.resize(Math.max(1, renderW / 4), Math.max(1, renderH / 4));
+        if(ssaoFbo != null) ssaoFbo.resize(Math.max(1, renderW / 2), Math.max(1, renderH / 2));
+        if(decalFboA != null) decalFboA.resize(renderW, renderH);
+        if(decalFboB != null) decalFboB.resize(renderW, renderH);
         computeUiOrtho();
     }
 
@@ -286,14 +313,24 @@ public final class PbrRenderer {
         if (brightShader != null) brightShader.dispose();
         if (blurShader != null) blurShader.dispose();
         if (compositeShader != null) compositeShader.dispose();
+        if (ssaoShader != null) ssaoShader.dispose();
+        if (decalShader != null) decalShader.dispose();
         depthShader = pbrShader = waterShader = skyShader = spriteShader = null;
         particleShader = flatShader = uiShader = brightShader = blurShader = compositeShader = null;
+        ssaoShader = decalShader = null;
 
         if (sceneFbo != null) sceneFbo.dispose();
         if (shadowFbo != null) shadowFbo.dispose();
         if (brightFbo != null) brightFbo.dispose();
         if (blurFbo != null) blurFbo.dispose();
+        if (ssaoFbo != null) ssaoFbo.dispose();
+        if (decalFboA != null) decalFboA.dispose();
+        if (decalFboB != null) decalFboB.dispose();
         sceneFbo = shadowFbo = brightFbo = blurFbo = null;
+        ssaoFbo = decalFboA = decalFboB = null;
+        disposeIbl();
+        foliage.clear();
+        foliageWorld = null;
 
         if (particleVao != null) particleVao.dispose();
         if (uiVao != null) uiVao.dispose();
@@ -360,6 +397,20 @@ public final class PbrRenderer {
         parseEnvironment(world.environment);
         gatherLights(world, cam, svc);
         collectItems(world, cam);
+        // v2.0: IBL bake, foliage collect, decals gather
+        ensureIBL();
+        if(cfg.instancing && foliageWorld != world){
+            foliage.collect(world, assets);
+            foliageWorld = world;
+            foliage.initGl();
+        }
+        decalList.clear();
+        if(cfg.decals && decalFboA != null){
+            for (Entity e : world.entities){
+                if(e.destroyed || !e.active) continue;
+                if(e.has("Decal")) decalList.add(e);
+            }
+        }
 
         // ---- 1. shadow pass ----
         if (sunShadows && cfg.shadowMapSize > 0) renderShadowPass();
@@ -379,6 +430,11 @@ public final class PbrRenderer {
         renderOpaque(cam, false);   // opaque
         renderSky(cam, now);
         renderOpaque(cam, true);    // alpha-masked (after sky so cutout edges stay crisp)
+        // v2.0: instanced foliage (after sky/alpha so tall grass reads over geometry)
+        if(cfg.instancing && foliage.ready()){
+            int vis = foliage.cull(cam);
+            if(vis > 0) stats.drawCalls += foliage.draw(cam, now, assets);
+        }
         renderWater(cam, now);
         renderTransparent(cam);
         renderSprites(world, cam, svc, now);
@@ -387,7 +443,7 @@ public final class PbrRenderer {
         GLES30.glDepthMask(true);
 
         // ---- 3. post chain -> default framebuffer ----
-        renderPost(now);
+        renderPost(now, cam);
 
         // ---- 4. overlays ----
         renderUi(svc);
@@ -908,6 +964,22 @@ public final class PbrRenderer {
             shadowFbo.depthTex.bind(1);
         else
             GlObjects.Texture2D.white().bind(1);
+        // v2.0: full IBL (SkyLight equivalent)
+        if(cfg.ibl && iblUploaded && irrTexId != 0){
+            pbrShader.setInt("uIBL", 1);
+            pbrShader.setInt("uIrradiance", 2);
+            pbrShader.setInt("uPrefilter", 3);
+            pbrShader.setInt("uDFG", 4);
+            GLES30.glActiveTexture(GLES30.GL_TEXTURE2);
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_CUBE_MAP, irrTexId);
+            GLES30.glActiveTexture(GLES30.GL_TEXTURE3);
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_CUBE_MAP, prefTexId);
+            GLES30.glActiveTexture(GLES30.GL_TEXTURE4);
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, dfgTexId);
+            GLES30.glActiveTexture(GLES30.GL_TEXTURE0);
+        } else {
+            pbrShader.setInt("uIBL", 0);
+        }
         lastLightSignature = -1L;
         lastLightSelCount = -1;
     }
@@ -1148,19 +1220,80 @@ public final class PbrRenderer {
     // Post chain
     // ===================================================================
 
-    private void renderPost(float time){
+    private void renderPost(float time, CameraData cam){
         GLES30.glDisable(GLES30.GL_DEPTH_TEST);
         GLES30.glDisable(GLES30.GL_BLEND);
         GLES30.glDisable(GLES30.GL_CULL_FACE);
 
+        // ---- v2.0: SSAO (half res, applies to scene color) ----
+        boolean ssaoOn = cfg.ssao && ssaoFbo != null && ssaoShader != null && ssaoShader.ok()
+                && sceneFbo.depthTex != null;
+        if(ssaoOn){
+            ssaoFbo.bind();
+            ssaoShader.use();
+            ssaoShader.setInt("uDepth", 0);
+            ssaoShader.setInt("uSceneColor", 1);
+            ssaoShader.setMat4("uInvProj", cam.proj.cpy().invert().m);
+            ssaoShader.setMat4("uProj", cam.proj.m);
+            ssaoShader.setInt("uSamples", cfg.ssaoSamples);
+            ssaoShader.setFloat("uRadius", cfg.ssaoRadius);
+            ssaoShader.setFloat("uStrength", cfg.ssaoStrength);
+            ssaoShader.setFloat("uSeed", time % 17.0f);
+            sceneFbo.depthTex.bind(0);
+            sceneFbo.color.bind(1);
+            GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 3);
+            stats.drawCalls++;
+        }
+
+        // ---- v2.0: screen-space decals (ping-pong, up to 8 per frame) ----
+        boolean decalOn = cfg.decals && decalFboA != null && decalShader != null && decalShader.ok()
+                && !decalList.isEmpty() && sceneFbo.depthTex != null;
+        GlObjects.Texture2D sceneSource = ssaoOn ? ssaoFbo.color : sceneFbo.color;
+        if(decalOn){
+            Mat4 invVP = cam.viewProj.cpy().invert();
+            GlObjects.Fbo srcFbo = decalFboA, dstFbo = decalFboB;
+            int count = Math.min(8, decalList.size());
+            for(int i = 0; i < count; i++){
+                Entity d = decalList.get(i);
+                DecalComponent dc = d.get(DecalComponent.class);
+                if(dc == null) continue;
+                d.updateWorld();
+                dstFbo.bind();
+                decalShader.use();
+                decalShader.setInt("uSceneColor", 0);
+                decalShader.setInt("uDepth", 1);
+                decalShader.setInt("uDecalTex", 2);
+                decalShader.setVec3("uDecalPos", d.worldMatrix.m[12], d.worldMatrix.m[13], d.worldMatrix.m[14]);
+                decalShader.setVec3("uDecalHalf", dc.size.x * 0.5f, dc.size.y * 0.5f, dc.size.z * 0.5f);
+                decalShader.setMat4("uDecalRot", d.worldMatrix.m);
+                decalShader.setMat4("uInvViewProj", invVP.m);
+                decalShader.setFloat("uIntensity", dc.intensity);
+                decalShader.setFloat("uTiling", dc.tiling);
+                sceneSource.bind(0);
+                sceneFbo.depthTex.bind(1);
+                GlObjects.Texture2D dtex = getTexture(dc.texture.isEmpty() ? null : dc.texture);
+                if(dtex != null) dtex.bind(2); else GlObjects.Texture2D.white().bind(2);
+                GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 3);
+                stats.drawCalls++;
+                sceneSource = dstFbo.color;
+                GlObjects.Fbo tmp = srcFbo; srcFbo = dstFbo; dstFbo = tmp;
+            }
+            // ensure we leave the ping-pong with the newest result in a known buffer
+            if((count & 1) == 1){
+                // srcFbo now holds the latest — move it back to A for a stable reference below
+                // (sceneSource already points at it)
+            }
+            GlObjects.Fbo.unbindDefault(surfaceW, surfaceH);
+        }
+
         boolean bloomOn = cfg.bloom && cfg.quality != RendererConfig.Quality.LOW;
         if (bloomOn){
-            // brightpass scene -> 1/4 res
+            // brightpass scene -> 1/4 res (v2.0: uses SSAO/decal-processed scene)
             brightFbo.bind();
             brightShader.use();
             brightShader.setInt("uTex", 0);
             brightShader.setFloat("uThreshold", BLOOM_THRESHOLD);
-            sceneFbo.color.bind(0);
+            sceneSource.bind(0);
             GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 3);
             stats.drawCalls++;
             // separable gaussian, 2 iterations
@@ -1197,11 +1330,120 @@ public final class PbrRenderer {
         compositeShader.setVec3("uLift", env.lift[0], env.lift[1], env.lift[2]);
         compositeShader.setVec3("uGain", env.gain[0], env.gain[1], env.gain[2]);
         compositeShader.setFloat("uGamma", env.gamma);
-        sceneFbo.color.bind(0);
+        sceneSource.bind(0);
         if (bloomOn) brightFbo.color.bind(1);
         else GlObjects.Texture2D.white().bind(1);
         GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 3);
         stats.drawCalls++;
+    }
+
+    // ===================================================================
+    // v2.0: IBL bake + upload (SkyLight equivalent)
+    // ===================================================================
+
+    private void ensureIBL(){
+        if(!cfg.ibl) return;
+        String key = env.skyTop[0] + "," + env.skyTop[1] + "," + env.skyTop[2] + "|"
+                + env.skyHorizon[0] + "," + env.skyHorizon[1] + "," + env.skyHorizon[2] + "|"
+                + env.moonColor[0] + "," + env.moonColor[1] + "," + env.moonColor[2] + "|"
+                + env.moonAz + "," + env.moonEl;
+        if(key.equals(iblKey) && iblUploaded) return;
+        iblKey = key;
+        iblUploaded = false;
+        try {
+            Vec3 moon = new Vec3();
+            double az = Math.toRadians(env.moonAz), el = Math.toRadians(env.moonEl);
+            moon.set((float)(Math.cos(el) * Math.sin(az)), (float)Math.sin(el), (float)(-Math.cos(el) * Math.cos(az)));
+            ibl = new IBLData(new Vec3(env.skyTop[0], env.skyTop[1], env.skyTop[2]),
+                              new Vec3(env.skyHorizon[0], env.skyHorizon[1], env.skyHorizon[2]),
+                              moon,
+                              new Vec3(env.moonColor[0], env.moonColor[1], env.moonColor[2]));
+            uploadIbl();
+            iblUploaded = true;
+        } catch(Throwable t){
+            Log.w(TAG, "IBL bake failed: " + t.getMessage());
+            iblUploaded = false;
+        }
+    }
+
+    private void uploadIbl(){
+        if(irrTexId == 0){
+            int[] ids = new int[3];
+            GLES30.glGenTextures(3, ids, 0);
+            irrTexId = ids[0]; prefTexId = ids[1]; dfgTexId = ids[2];
+        }
+        // irradiance cubemap (6 faces RGBA16F)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_CUBE_MAP, irrTexId);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_CUBE_MAP, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_CUBE_MAP, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_CUBE_MAP, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_CUBE_MAP, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE);
+        int n = ibl.irrSize;
+        for(int face = 0; face < 6; face++){
+            float[] rgba = new float[n * n * 4];
+            for(int px = 0; px < n * n; px++){
+                rgba[px * 4]     = ibl.irradiance[(face * n * n + px) * 3];
+                rgba[px * 4 + 1] = ibl.irradiance[(face * n * n + px) * 3 + 1];
+                rgba[px * 4 + 2] = ibl.irradiance[(face * n * n + px) * 3 + 2];
+                rgba[px * 4 + 3] = 1f;
+            }
+            java.nio.FloatBuffer buf = com.hollow.core.NioUtil.floatBuffer(rgba.length);
+            buf.put(rgba); buf.position(0);
+            GLES30.glTexImage2D(GLES30.GL_TEXTURE_CUBE_MAP_POSITIVE_X + face, 0, GLES30.GL_RGBA16F,
+                    n, n, 0, GLES30.GL_RGBA, GLES30.GL_FLOAT, buf);
+        }
+        // prefiltered specular chain (5 mips)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_CUBE_MAP, prefTexId);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_CUBE_MAP, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR_MIPMAP_LINEAR);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_CUBE_MAP, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_CUBE_MAP, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_CUBE_MAP, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE);
+        for(int mip = 0; mip < ibl.preMips; mip++){
+            int s = ibl.mipSize(mip);
+            for(int face = 0; face < 6; face++){
+                float[] rgba = new float[s * s * 4];
+                for(int px = 0; px < s * s; px++){
+                    int o = ((mip * 6 + face) * ibl.preSize * ibl.preSize + px) * 3;
+                    rgba[px * 4]     = ibl.prefiltered[o];
+                    rgba[px * 4 + 1] = ibl.prefiltered[o + 1];
+                    rgba[px * 4 + 2] = ibl.prefiltered[o + 2];
+                    rgba[px * 4 + 3] = 1f;
+                }
+                java.nio.FloatBuffer buf = com.hollow.core.NioUtil.floatBuffer(rgba.length);
+                buf.put(rgba); buf.position(0);
+                GLES30.glTexImage2D(GLES30.GL_TEXTURE_CUBE_MAP_POSITIVE_X + face, mip, GLES30.GL_RGBA16F,
+                        s, s, 0, GLES30.GL_RGBA, GLES30.GL_FLOAT, buf);
+            }
+        }
+        // DFG LUT (RGBA16F; xy used)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, dfgTexId);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE);
+        float[] drgba = new float[ibl.dfgSize * ibl.dfgSize * 4];
+        for(int px = 0; px < ibl.dfgSize * ibl.dfgSize; px++){
+            drgba[px * 4]     = ibl.dfg[px * 2];
+            drgba[px * 4 + 1] = ibl.dfg[px * 2 + 1];
+            drgba[px * 4 + 2] = 0f;
+            drgba[px * 4 + 3] = 1f;
+        }
+        java.nio.FloatBuffer dbuf = com.hollow.core.NioUtil.floatBuffer(drgba.length);
+        dbuf.put(drgba); dbuf.position(0);
+        GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA16F, ibl.dfgSize, ibl.dfgSize, 0,
+                GLES30.GL_RGBA, GLES30.GL_FLOAT, dbuf);
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_CUBE_MAP, 0);
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0);
+    }
+
+    private void disposeIbl(){
+        if(irrTexId != 0){
+            GLES30.glDeleteTextures(3, new int[]{irrTexId, prefTexId, dfgTexId}, 0);
+            irrTexId = prefTexId = dfgTexId = 0;
+        }
+        iblUploaded = false;
+        iblKey = "";
+        ibl = null;
     }
 
     // ===================================================================

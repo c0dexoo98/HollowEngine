@@ -73,6 +73,7 @@ public final class UIManager {
 
     public void update(float dt){
         uiTime += dt;
+        Tween.updateAll(dt);
         if(root != null) root.updateTree(dt, this);
         if(toastHost != null) toastHost.updateToasts(dt);
         // focused text field consumes typed chars from the framework input layer
@@ -571,6 +572,8 @@ public final class UIManager {
             case "progressbar": case "progress": w = new ProgressBar(); break;
             case "textfield": case "input": w = new TextField(); break;
             case "toast": w = toasts(); break;
+            case "nineslice": case "9slice": w = UIWidgets2.buildNineSlice(node); break;
+            case "listview": case "list": w = UIWidgets2.buildListView(node); break;
             case "panel": default:
                 if(!type.equals("panel")) Log.w("UI", "unknown widget type '" + type + "' — using panel");
                 w = new Panel(); break;
@@ -662,6 +665,9 @@ public final class UIManager {
             p.texture = Json.str(node.get("texture"), null);
             p.borderWidth = (float) Json.num(node.get("borderWidth"), 0);
             Color bc = Json.color(node.get("borderColor"), null); if(bc != null) p.borderColor.set(bc);
+        } else if(w instanceof UIWidgets2.ListView){
+            UIWidgets2.ListView lv = (UIWidgets2.ListView) w;
+            lv.selectedIndex = Json.int32(node.get("selectedIndex"), -1);
         }
         // minimal per-widget anim (alpha fade-in / slide)
         Object animNode = node.get("anim");

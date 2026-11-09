@@ -27,6 +27,16 @@ public final class ParticleEmitter extends Component {
     public boolean localSpace = false;
     public String effect = "";              // registered effect name (target of ParticleLibrary.burst)
 
+    // ---- v2.0: trails / sub-emitters / collision ----
+    public boolean trail = false;           // spawn along entity movement
+    public float trailMinDist = 0.15f;      // min move distance between spawns
+    public float trailSpacing = 0.08f;      // particle spacing along the path
+    public String deathEffect = "";         // sub-emitter: effect name fired at particle death
+    public boolean collide = false;         // raycast particles against statics
+    public boolean collideKill = true;      // kill on contact (false = bounce)
+    public float collideBounce = 0.4f;      // restitution when bouncing
+    public float collideRadius = 0.05f;
+
     boolean burstDone = false;
     com.hollow.game.EngineServices services() {
         return com.hollow.game.GameApp.instance != null ? com.hollow.game.GameApp.instance.services() : null;
@@ -48,6 +58,14 @@ public final class ParticleEmitter extends Component {
           .kvv("gravity",gravity.x,gravity.y,gravity.z).kv("drag",drag).kvv("size",sizeMin,sizeMax)
           .kv("maxCount",maxCount).kv("additive",additive).kv("localSpace",localSpace);
         if(!effect.isEmpty()) w.kv("effect",effect);
+        if(trail){
+            w.kv("trail",true).kv("trailMinDist",trailMinDist).kv("trailSpacing",trailSpacing);
+        }
+        if(!deathEffect.isEmpty()) w.kv("deathEffect",deathEffect);
+        if(collide){
+            w.kv("collide",true).kv("collideKill",collideKill).kv("collideBounce",collideBounce)
+             .kv("collideRadius",collideRadius);
+        }
         if(sizeCurve != null) w.kv("sizeCurve", Json.write(sizeCurve));
         if(colorCurve != null) w.kv("colorCurve", Json.write(colorCurve));
         w.endObj();
@@ -71,6 +89,14 @@ public final class ParticleEmitter extends Component {
         additive = n.bool("additive",true);
         localSpace = n.bool("localSpace",false);
         effect = n.str("effect","");
+        trail = n.bool("trail",false);
+        trailMinDist = n.flt("trailMinDist",0.15f);
+        trailSpacing = n.flt("trailSpacing",0.08f);
+        deathEffect = n.str("deathEffect","");
+        collide = n.bool("collide",false);
+        collideKill = n.bool("collideKill",true);
+        collideBounce = n.flt("collideBounce",0.4f);
+        collideRadius = n.flt("collideRadius",0.05f);
         sizeCurve = n.list("sizeCurve");
         colorCurve = n.list("colorCurve");
     }

@@ -129,7 +129,11 @@ public final class Shaders {
     uniform float uFogHeightFalloff;
     uniform float uFogHeight;
 
-    const float PI = 3.14159265358979;
+    // v2.0 full IBL (SkyLight equivalent)
+    uniform int uIBL;                 // 0 = hemisphere fallback, 1 = cubemaps
+    uniform samplerCube uIrradiance;
+    uniform samplerCube uPrefilter;
+    uniform sampler2D uDFG;
 
     float dGGX(float ndh, float a){
         float a2 = a * a;
@@ -224,12 +228,25 @@ public final class Shaders {
             color += pbrLight(N, V, L, uLightColor[i].rgb * att * spot, albedo, f0, rough, metallic);
         }
 
-        // --- ambient hemisphere (IBL-lite) ---
-        vec3 ambSky = uAmbient;
-        vec3 ambGround = uAmbient * 0.5;
-        vec3 amb = mix(ambGround, ambSky, 0.5 + 0.5 * N.y);
-        color += amb * albedo;
-        color += f0 * amb * (1.0 - rough) * 0.35;
+        // --- ambient (v2.0: full IBL or hemisphere fallback) ---
+        vec3 amb;
+        if(uIBL > 0){
+            vec3 irr = texture(uIrradiance, N).rgb;
+            vec3 Rref = reflect(-V, N);
+            float lod = rough * 4.0;
+            vec3 pre = textureLod(uPrefilter, Rref, lod).rgb;
+            float ndv = clamp(dot(N, V), 0.0, 1.0);
+            vec2 dfg = texture(uDFG, vec2(ndv, clamp(rough, 0.0, 1.0))).rg;
+            vec3 diff = irr * albedo;
+            vec3 spec = pre * (f0 * dfg.x + clamp(1.0 - rough, 0.0, 1.0) * dfg.y);
+            amb = diff + spec;
+        } else {
+            vec3 ambSky = uAmbient;
+            vec3 ambGround = uAmbient * 0.5;
+            vec3 hemi = mix(ambGround, ambSky, 0.5 + 0.5 * N.y);
+            amb = hemi * albedo + f0 * hemi * (1.0 - rough) * 0.35;
+        }
+        color += amb;
 
         // --- exp2 height fog ---
         float dist = length(vWorld - uCamPos);
@@ -649,6 +666,172 @@ public final class Shaders {
         }
 
         fragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
+    }
+    """;
+
+    // ================= v2.0: instanced foliage =================
+    public static final String FOLIAGE_VS = """
+    #version 300 es
+    precision highp float;
+    layout(location=0) in vec3 aPos;
+    layout(location=1) in vec3 aNormal;
+    layout(location=2) in vec4 iPosScale;    // xyz=world pos, w=scale
+    layout(location=3) in vec4 iRotPhase;    // x=rotY(rad), y=wind phase, z=wind amp
+    uniform mat4 uViewProj;
+    uniform float uTime;
+    out vec3 vWorld;
+    out vec3 vNormal;
+    flat out float vWind;
+    void main(){
+        float c = cos(iRotPhase.x), s = sin(iRotPhase.x);
+        mat3 rot = mat3(c, 0.0, -s, 0.0, 1.0, 0.0, s, 0.0, c);
+        vec3 p = rot * (aPos * iPosScale.w) + iPosScale.xyz;
+        vec3 n = rot * aNormal;
+        // wind sway: bend grows with height above instance origin
+        float bend = sin(uTime * 1.7 + iRotPhase.y) * iRotPhase.z * max(0.0, aPos.y) * 0.08;
+        p.x += bend; p.z += bend * 0.6;
+        vWorld = p;
+        vNormal = normalize(n);
+        vWind = iRotPhase.z;
+        gl_Position = uViewProj * vec4(p, 1.0);
+    }
+    """;
+
+    public static final String FOLIAGE_FS = """
+    #version 300 es
+    precision mediump float;
+    in vec3 vWorld;
+    in vec3 vNormal;
+    flat in float vWind;
+    uniform vec3 uLightDir;
+    uniform vec3 uLightCol;
+    uniform vec3 uAmbient;
+    uniform vec3 uFogColor;
+    uniform float uFogDensity;
+    uniform vec3 uCamPos;
+    out vec4 fragColor;
+    void main(){
+        vec3 n = normalize(vNormal);
+        float ndl = max(dot(n, normalize(-uLightDir)), 0.0);
+        // translucency fake: leaves lit from behind
+        float trans = pow(max(dot(normalize(uCamPos - vWorld), normalize(uLightDir)), 0.0), 3.0) * 0.25;
+        vec3 base = vec3(0.16, 0.35, 0.12);      // foliage base albedo
+        vec3 c = base * (uAmbient + uLightCol * (ndl + trans));
+        float dist = length(uCamPos - vWorld);
+        float fog = 1.0 - exp(-uFogDensity * uFogDensity * dist * dist);
+        c = mix(c, uFogColor, clamp(fog, 0.0, 1.0));
+        fragColor = vec4(c, 1.0);
+    }
+    """;
+
+    // ================= v2.0: SSAO (half-res, hemispheric kernel) =================
+    public static final String SSAO_VS = """
+    #version 300 es
+    precision highp float;
+    layout(location=0) in vec2 aPos;
+    out vec2 vUV;
+    void main(){ vUV = aPos * 0.5 + 0.5; gl_Position = vec4(aPos, 0.0, 1.0); }
+    """;
+
+    public static final String SSAO_FS = """
+    #version 300 es
+    precision highp float;
+    in vec2 vUV;
+    uniform sampler2D uDepth;
+    uniform sampler2D uSceneColor;
+    uniform mat4 uInvProj;      // clip -> view
+    uniform mat4 uProj;
+    uniform int uSamples;
+    uniform float uRadius;
+    uniform float uStrength;
+    uniform float uSeed;
+    out vec4 fragColor;
+    float linDepth(vec2 uv){
+        float z = texture(uDepth, uv).x;
+        // GLES depth is 0..1 in window space; recover view Z via proj params
+        float near = uProj[3][2] / (uProj[2][2] - 1.0);
+        float far  = uProj[3][2] / (uProj[2][2] + 1.0);
+        return (2.0 * near * far) / (far + near - (z * 2.0 - 1.0) * (far - near));
+    }
+    vec3 viewPos(vec2 uv){
+        float z = linDepth(uv);
+        vec4 clip = vec4(uv * 2.0 - 1.0, 0.0, 1.0);
+        vec4 v = uInvProj * clip;
+        return normalize(v.xyz) * z;
+    }
+    float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7)) + uSeed) * 43758.5453); }
+    void main(){
+        vec3 scene = texture(uSceneColor, vUV).rgb;
+        float d = linDepth(vUV);
+        // sky (far plane) — no occlusion
+        if(d > 900.0){ fragColor = vec4(scene, 1.0); return; }
+        vec3 P = viewPos(vUV);
+        float occ = 0.0;
+        int N = clamp(uSamples, 4, 16);
+        for(int i = 0; i < N; i++){
+            float a = hash(vUV * float(i + 1)) * 6.2831853;
+            float r = uRadius * (0.35 + 0.65 * hash(vUV * float(i + 17) + 3.7));
+            vec3 dir = vec3(cos(a), sin(a), hash(vUV * float(i + 31)) * 2.0 - 0.6);
+            vec3 samplePos = P + dir * r;
+            // project sample back
+            vec4 sp = uProj * vec4(samplePos, 1.0);
+            vec2 suv = (sp.xy / max(sp.w, 0.001)) * 0.5 + 0.5;
+            float sz = linDepth(suv);
+            // sample is occluded if scene depth in front of the sample depth
+            if(sz < -samplePos.z - 0.02) occ += 1.0;
+        }
+        float ao = 1.0 - (occ / float(N)) * uStrength;
+        fragColor = vec4(scene * clamp(ao, 0.0, 1.0), 1.0);
+    }
+    """;
+
+    // ================= v2.0: screen-space decal =================
+    public static final String DECAL_VS = """
+    #version 300 es
+    precision highp float;
+    layout(location=0) in vec2 aPos;
+    out vec2 vUV;
+    void main(){ vUV = aPos * 0.5 + 0.5; gl_Position = vec4(aPos, 0.0, 1.0); }
+    """;
+
+    public static final String DECAL_FS = """
+    #version 300 es
+    precision highp float;
+    in vec2 vUV;
+    uniform sampler2D uSceneColor;
+    uniform sampler2D uDepth;
+    uniform vec3 uDecalPos;     // world center
+    uniform vec3 uDecalHalf;    // half extents
+    uniform mat4 uDecalRot;     // world rotation of the decal box (column-major mat3 in mat4)
+    uniform mat4 uInvViewProj;  // clip -> world
+    uniform sampler2D uDecalTex;
+    uniform float uIntensity;
+    uniform float uTiling;
+    uniform float uFadeAngle;
+    out vec4 fragColor;
+    vec3 worldFromDepth(vec2 uv){
+        float z = texture(uDepth, uv).x;
+        vec4 clip = vec4(uv * 2.0 - 1.0, z * 2.0 - 1.0, 1.0);
+        vec4 w = uInvViewProj * clip;
+        return w.xyz / max(w.w, 0.0001);
+    }
+    void main(){
+        vec3 scene = texture(uSceneColor, vUV).rgb;
+        vec3 wp = worldFromDepth(vUV);
+        vec3 rel = wp - uDecalPos;
+        vec3 local = transpose(mat3(uDecalRot)) * rel;
+        vec3 nrm = abs(local) - uDecalHalf;
+        // outside the projection volume?
+        if(any(greaterThan(nrm, vec3(0.0)))){ fragColor = vec4(scene, 1.0); return; }
+        // project onto the dominant axis
+        vec3 al = abs(local);
+        vec2 uv;
+        if(al.x >= al.y && al.x >= al.z)      uv = local.zy / uDecalHalf.z;
+        else if(al.y >= al.z)                 uv = local.xz / uDecalHalf.x;
+        else                                  uv = local.xy / uDecalHalf.y;
+        vec4 dec = texture(uDecalTex, uv * 0.5 + 0.5 * uTiling);
+        float edge = 1.0 - smoothstep(0.0, 1.0, max(abs(uv.x), abs(uv.y)));
+        fragColor = vec4(mix(scene, dec.rgb * uIntensity, dec.a * edge), 1.0);
     }
     """;
 }

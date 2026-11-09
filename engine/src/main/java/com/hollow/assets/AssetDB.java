@@ -69,6 +69,16 @@ public final class AssetDB {
         return c;
     }
 
+    /** v2.0: blend spaces (anim/*.blendspace.json) with cache */
+    private final java.util.Map<String, com.hollow.anim.BlendSpace> blendCache = new java.util.HashMap<>();
+    public synchronized com.hollow.anim.BlendSpace blendSpace(String path){
+        com.hollow.anim.BlendSpace bs = blendCache.get(path);
+        if(bs != null) return bs;
+        bs = com.hollow.anim.BlendSpace.loadFromProject(fs, path);
+        if(bs != null) blendCache.put(path, bs);
+        return bs;
+    }
+
     // ------------- images -------------
     public synchronized ImageData image(String path){
         ImageData im = imageCache.get(path);
