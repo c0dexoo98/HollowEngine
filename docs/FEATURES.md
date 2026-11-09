@@ -13,7 +13,7 @@
 | MATH | MATH-001…MATH-030 | 21 | 30 | B1 |
 | OBJ | OBJ-001…OBJ-030 | 16 | 30 | B1 |
 | WLD | WLD-001…WLD-025 | 9 | 25 | B4 |
-| RND | RND-001…RND-035 | 26 | 35 | B2 |
+| RND | RND-001…RND-035 | 27 | 35 | B2 |
 | LGT | LGT-001…LGT-020 | 12 | 20 | B2 |
 | MAT | MAT-001…MAT-020 | 12 | 20 | B2 |
 | PST | PST-001…PST-020 | 8 | 20 | B2 |
@@ -35,7 +35,7 @@
 | SCR | SCR-001…SCR-015 | 6 | 15 | B6 |
 | VR | VR-001…VR-010 | 0 | 10 | B6 |
 | EXT | EXT-001…EXT-010 | 4 | 10 | B6 |
-| **جمع** | ۳۰ دسته | **276** | **570** | ۶ نوبت |
+| **جمع** | ۳۰ دسته | **277** | **570** | ۶ نوبت |
 
 ---
 
@@ -194,7 +194,7 @@ _بارگذاری صحنه، streaming، محیط و ابزارهای دنیاس
 - [ ] **WLD-024** — گرفتن اسنپ‌شات وضعیت World برای تست regression
 - [ ] **WLD-025** — abstraction دنیای headless برای تست سرور
 
-## 6. RND — رندر (26/35)
+## 6. RND — رندر (27/35)
 
 _Forward PBR، آسمان، IBL، دیکال، instancing و کیفیت‌بندی_
 
@@ -224,7 +224,7 @@ _Forward PBR، آسمان، IBL، دیکال، instancing و کیفیت‌بند
 - [x] **RND-024** — vertex format انعطاف‌پذیر (pos/normal/uv/skin/color)
 - [x] **RND-025** — texture atlas runtime با padding ضد bleed
 - [x] **RND-026** — تزریق decal روی سطح با بلندینگ نرمال
-- [ ] **RND-027** — SSAO (ambient occlusion صفحه‌ای نیم‌مقیاس)
+- [x] **RND-027** — SSAO (ambient occlusion صفحه‌ای نیم‌مقیاس)
 - [ ] **RND-028** — SSR بازتاب صفحه‌ای برای آب/کف صیقلی
 - [ ] **RND-029** — Motion blur سینمایی per-object
 - [ ] **RND-030** — TAA جمع زمانی با jitter
