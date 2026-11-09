@@ -54,3 +54,72 @@ hollow run -p proj --scene scenes/other.json       # اجرای headless با ص
 - `ParticleEmitter`: `trail`, `trailMinDist`, `trailSpacing`, `deathEffect`, `collide`, `collideKill`, `collideBounce`
 - `RendererConfig` (project.json quality): `ibl`, `ssao`, `decals`, `instancing` + `ssaoSamples/Radius/Strength`
 - انواع assert در `hollow run --assert`: `body_at_rest`, `body_below_y`, `bodies_asleep_at_least`, `eqs_found`, `cells_loaded`, `event_seen`
+
+## پوسته تعاملی `hollow shell` — v2.1 (Batch 1)
+
+REPL موتور به سبک Godot/Linux: مدیریت یک سشن headless از ترمینال.
+سه حالت اجرا:
+
+```bash
+hollow shell                    # تعاملی (hollow> پرامپت، خروج = exit/quit/Ctrl-D)
+hollow shell -c "cmd1; cmd2"    # یک‌خطی غیرتعاملی
+hollow shell -f session.hvefile # اجرای دسته‌ای اسکریپت (# = کامنت)
+```
+
+### دستورهای سشن
+
+```
+help [cmd]                 فهرست دستورها / راهنمای یکی
+echo, version, history     پایه
+clear (cls)                پاک‌سازی تاریخچه و لاگ
+
+engine start|stop|pause|resume|status
+engine step <ticks>        قدم به قدم شبیه‌سازی (ضدیت‌پذیر)
+engine speed <x>           timeScale
+
+world new <name>|load <file>|unload|list|info|save <file>
+actor spawn <name>|list|inspect <id|name>|kill|move <id> x y z|tag|find
+component list|add <id> <Type> [json]|remove|set <id> <Type> <json>|get
+prefab load <file>|save <id> <file>|spawn <name> [x y z]
+
+cvar list [filter]|get <name>|set <name> <value>|save <file>|load <file>
+                           # نام ناشناس در set به‌صورت Quake-style ساخته می‌شود
+                           # داخل سشن هر CVar ثبت‌شده مثل دستور کار می‌کند: fov 95
+mem | subsys | gc          تله‌متری حافظه / جدول ساب‌سیستم‌ها / GC
+guid                       شناسه پایدار جدید
+batch <file.hvefile>       اجرای اسکریپت از داخل سشن
+screenshot [--out f.json]  اسنپ‌شات JSON وضعیت دنیا (پیکسلی = Batch 2)
+wait <ticks>               قدم زدن تا رسیدن به تیک هدف
+```
+
+### نمونه سشن
+
+```
+$ hollow shell
+hollow> world new demo
+created empty world 'demo'
+hollow> engine start
+engine started (world 'demo', 0 entities)
+hollow> actor spawn guard
+spawned guard#1
+hollow> actor tag 1 enemy
+guard#1 tag='enemy'
+hollow> cvar set fov 95
+fov = 95.0
+hollow> engine step 30
+stepped 30 ticks -> tick 30, time 0.50s
+hollow> actor inspect 1
+guard#1  ...
+```
+
+نمونه `.hvefile` (اسکریپت سشن):
+
+```
+# smoke test دنیا
+world load scenes/entry.json
+engine start
+engine step 300
+mem
+actor list
+engine stop
+```

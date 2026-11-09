@@ -33,6 +33,8 @@ public final class AABB {
     }
     public Vec3 center(){ return min.cpy().add(max).scale(0.5f); }
     public Vec3 size(){ return max.cpy().sub(min); }
+    /** half-size */
+    public Vec3 extents(){ return size().scale(0.5f); }
     public float radius(){
         Vec3 s = size(); return 0.5f*(float)Math.sqrt(s.len2());
     }

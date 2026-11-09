@@ -7,6 +7,11 @@
 >
 > **v2.0** — فیزیک کامل (حل‌گر ضربه + Joint + خواب اجسام)، IBL کامل، Instancing/Foliage،
 > SSAO، Decal، BlendSpace/IK/Notify، EQS + Crowd، Reverb/EQ/Ducking، شبکه (snapshot+interpolation)،
+>
+> **v2.1** (`hollow-foundation`, Batch 1) — پوسته تعاملی `hollow shell` (REPL + .hvefile)،
+> سیستم CVar، کنسول فرمان، CrashHandler، Watchdog، JobQueue، Subsystems، Pool/Arena/RingBuffer/ReleaseQueue،
+> MemoryStats، Noise/PCG/Ease/Spline/HalfFloat/Vec4/Rect/Plane، Guid، Prefab، Result.
+> چک‌لیست مستر ۵۷۰ قابلیت: `docs/FEATURES.md` (۲۷۶ انجام‌شده، ۲۹۴ در صف ۶ نوبتی).
 > World Streaming، Profiler + بیلد تست خودکار.
 
 ---

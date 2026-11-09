@@ -617,7 +617,7 @@ public final class Commands {
     // ================= v2.0: selftest (engine unit checks) =================
     static void selfTest(){
         int failures = 0;
-        System.out.println("HollowEngine 2.0 self test");
+        System.out.println(com.hollow.core.EngineVersion.FULL + " self test");
         // --- math: quat invert/slerp roundtrip ---
         try {
             com.hollow.core.Quat q = com.hollow.core.Quat.fromEuler(20, 35, -10).norm();
@@ -751,6 +751,176 @@ public final class Commands {
             if(wav.length != 44 + 8) throw new AssertionError("bad wav size " + wav.length);
             pass("WAV writer header");
         } catch(Throwable t){ fail("wav", t); failures++; }
+        // ================= v2.1 Batch-1 additions =================
+        // --- CVar: register/set/listener/dirty/persistence ---
+        try {
+            com.hollow.core.CVar v = com.hollow.core.CVar.registerFloat("test.gravity", 9.8f, "test var");
+            final float[] seen = { 0 };
+            v.onChange(c -> seen[0] = c.getFloat());
+            v.set("3.5");
+            if(Math.abs(v.getFloat() - 3.5f) > 1e-6f) throw new AssertionError("set/get");
+            if(Math.abs(seen[0] - 3.5f) > 1e-6f) throw new AssertionError("listener not fired");
+            if(!v.isDirty()) throw new AssertionError("dirty flag");
+            com.hollow.core.CVar.save("build/test-cvars.cfg", true);
+            v.set("1.0");
+            com.hollow.core.CVar.load("build/test-cvars.cfg");
+            if(Math.abs(v.getFloat() - 3.5f) > 1e-6f) throw new AssertionError("persist round-trip " + v.getFloat());
+            pass("CVar set/listener/persist");
+        } catch(Throwable t){ fail("cvar", t); failures++; }
+        // --- Console: parse/alias/history/tokenize ---
+        try {
+            com.hollow.core.Console c = new com.hollow.core.Console(50);
+            c.register("add", "a+b", args -> String.valueOf(Integer.parseInt(args[0]) + Integer.parseInt(args[1])));
+            c.alias("+", "add");
+            if(!"7".equals(c.execute("add 3 4"))) throw new AssertionError("add");
+            if(!"10".equals(c.execute("+ 6 4"))) throw new AssertionError("alias dispatch");
+            if(!"15".equals(c.execute("+ \"6\" '9'"))) throw new AssertionError("quoted tokens");
+            if(c.execute("nosuchcmd") == null || c.lastError == null) throw new AssertionError("unknown cmd error");
+            if(c.history().size() != 4) throw new AssertionError("history");
+            String[] toks = com.hollow.core.Console.tokenize("spawn \"big lamp\" x=1");
+            if(toks.length != 3 || !toks[1].equals("big lamp")) throw new AssertionError("tokenize " + java.util.Arrays.toString(toks));
+            pass("console execute/alias/tokenize/history");
+        } catch(Throwable t){ fail("console", t); failures++; }
+        // --- Pool / RingBuffer / Arena / ReleaseQueue ---
+        try {
+            com.hollow.core.Pool<StringBuilder> p = new com.hollow.core.Pool<>(StringBuilder::new, sb -> sb.setLength(0), 2, 8);
+            StringBuilder a = p.obtain(), b2 = p.obtain();   // idle 2 -> 0, inUse 2
+            a.append("x"); p.free(a);                        // idle 1, inUse 1
+            if(p.idle() != 1 || p.inUse() != 1) throw new AssertionError("pool counts idle=" + p.idle() + " inUse=" + p.inUse());
+            StringBuilder again = p.obtain();                // recycled 'a'
+            if(again.length() != 0) throw new AssertionError("reset not applied");
+            if(p.idle() != 0 || p.inUse() != 2) throw new AssertionError("pool recycle counts");
+            p.free(b2); p.free(again);
+
+            com.hollow.core.RingBuffer<Integer> rb = new com.hollow.core.RingBuffer<>(3, true);
+            for(int i=0;i<5;i++) rb.offer(i);           // overwrites oldest
+            if(rb.size() != 3 || rb.peek() != 2 || rb.peekLast() != 4) throw new AssertionError("ring " + rb.stats());
+            if(rb.poll() != 2 || rb.poll() != 3 || rb.poll() != 4) throw new AssertionError("ring fifo");
+
+            com.hollow.core.ArenaAllocator arena = new com.hollow.core.ArenaAllocator(256);
+            int m = arena.mark();
+            int addr = arena.alloc(16, 8);
+            arena.putInt(addr, 0xCAFEBABE);
+            if(arena.getInt(addr) != 0xCAFEBABE) throw new AssertionError("arena int");
+            arena.putFloat(addr + 4, 2.5f);
+            if(Math.abs(arena.getFloat(addr + 4) - 2.5f) > 1e-6f) throw new AssertionError("arena float");
+            arena.rewind(m);
+            if(arena.used() != 0) throw new AssertionError("arena rewind");
+
+            final int[] freed = { 0 };
+            com.hollow.core.ReleaseQueue.enqueue(() -> freed[0]++);
+            com.hollow.core.ReleaseQueue.enqueue(() -> freed[0]++);
+            if(com.hollow.core.ReleaseQueue.pending() != 2) throw new AssertionError("release pending");
+            com.hollow.core.ReleaseQueue.drain();
+            if(freed[0] != 2 || com.hollow.core.ReleaseQueue.pending() != 0) throw new AssertionError("release queue freed=" + freed[0]);
+            pass("pool/ring/arena/release-queue");
+        } catch(Throwable t){ fail("mem-allocators", t); failures++; }
+        // --- MemoryStats + Subsystems + JobQueue + Watchdog + Result ---
+        try {
+            com.hollow.core.MemoryStats.Snapshot s = com.hollow.core.MemoryStats.snapshot();
+            if(s.heapMax <= 0 || s.gcCollections < 0) throw new AssertionError("snapshot");
+            if(com.hollow.core.MemoryStats.health().isEmpty()) throw new AssertionError("health");
+
+            com.hollow.core.Subsystems.register(new com.hollow.core.Subsystems.Subsystem(){
+                public String name(){ return "test-low"; }
+            }, 10);
+            com.hollow.core.Subsystems.register(new com.hollow.core.Subsystems.Subsystem(){
+                public String name(){ return "test-high"; }
+            }, 20);
+            com.hollow.core.Subsystems.initAll();
+            if(!com.hollow.core.Subsystems.allInitialized()) throw new AssertionError("init all");
+            com.hollow.core.Subsystems.shutdownAll();
+
+            com.hollow.core.JobQueue q = new com.hollow.core.JobQueue(4, true); // inline deterministic
+            final int[] counter = { 0 };
+            q.submit(() -> counter[0]++);
+            q.submit(() -> counter[0] += 10);
+            if(counter[0] != 11) throw new AssertionError("inline jobs");
+
+            com.hollow.core.Watchdog wd = new com.hollow.core.Watchdog(2f);
+            wd.heartbeat(); wd.setEnabled(false); wd.close();
+
+            com.hollow.core.Result<Integer> ok = com.hollow.core.Result.ok(5);
+            com.hollow.core.Result<Integer> bad = com.hollow.core.Result.fail("nope");
+            if(ok.orElse(0) != 5 || bad.orElse(7) != 7 || bad.isOk()) throw new AssertionError("result");
+            pass("memstats/subsystems/jobqueue/watchdog/result");
+        } catch(Throwable t){ fail("core-services", t); failures++; }
+        // --- Noise / RandomStream determinism ---
+        try {
+            com.hollow.core.Noise n1 = new com.hollow.core.Noise(7), n2 = new com.hollow.core.Noise(7);
+            for(int i=0;i<200;i++){
+                float a = n1.perlin2(i * 0.13f, i * 0.07f);
+                float b2 = n2.perlin2(i * 0.13f, i * 0.07f);
+                if(a != b2) throw new AssertionError("noise not deterministic");
+                if(Math.abs(a) > 1.5f) throw new AssertionError("noise out of range " + a);
+            }
+            com.hollow.core.Noise n3 = new com.hollow.core.Noise(9);
+            if(n3.perlin2(1.37f, 2.71f) == n1.perlin2(1.37f, 2.71f)) throw new AssertionError("different seeds equal");
+            float fbm = n1.fbm2(0.5f, 0.5f, 4, 2f, 0.5f);
+            if(Float.isNaN(fbm)) throw new AssertionError("fbm NaN");
+
+            com.hollow.core.RandomStream r1 = new com.hollow.core.RandomStream(42), r2 = new com.hollow.core.RandomStream(42);
+            for(int i=0;i<1000;i++) if(r1.nextInt(1000) != r2.nextInt(1000)) throw new AssertionError("pcg mismatch");
+            for(int i=0;i<2000;i++){
+                float f = r1.range(5, 9);
+                if(f < 5 || f >= 9) throw new AssertionError("range " + f);
+            }
+            if(r1.weighted(new float[]{0, 1}) != 1) throw new AssertionError("weighted");
+            pass("noise/pcg determinism");
+        } catch(Throwable t){ fail("noise-rng", t); failures++; }
+        // --- Ease / Spline / HalfFloat / Guid / Vec4 / Rect / Plane ---
+        try {
+            if(com.hollow.core.Ease.byName("cubic_out", 0.5f) <= com.hollow.core.Ease.byName("cubic_out", 0.2f))
+                throw new AssertionError("ease monotonic");
+            if(Math.abs(com.hollow.core.Ease.bounceOut(1f) - 1f) > 1e-4f) throw new AssertionError("bounce(1)");
+            if(Math.abs(com.hollow.core.Ease.damp(0f, 10f, 4f, 0.016f)) <= 0f) throw new AssertionError("damp");
+            if(com.hollow.core.Ease.pingPong(1.5f) != 0.5f) throw new AssertionError("pingpong");
+
+            com.hollow.core.Vec3 p0 = new com.hollow.core.Vec3(0,0,0), p1 = new com.hollow.core.Vec3(1,0,0), p2 = new com.hollow.core.Vec3(2,0,0);
+            com.hollow.core.Spline sp = com.hollow.core.Spline.catmullRom(p0, p1, p2);
+            if(sp.sample(0).dist(p0) > 1e-4f || sp.sample(1).dist(p2) > 1e-4f) throw new AssertionError("spline endpoints");
+            if(sp.sample(0.5f).dist(new com.hollow.core.Vec3(1,0,0)) > 0.05f) throw new AssertionError("spline mid " + sp.sample(0.5f));
+            com.hollow.core.Spline bz = com.hollow.core.Spline.bezier(p0, new com.hollow.core.Vec3(0,1,0), new com.hollow.core.Vec3(1,1,0), p2);
+            if(bz.sample(0).dist(p0) > 1e-4f || bz.sample(1).dist(p2) > 1e-4f) throw new AssertionError("bezier endpoints");
+            float len = sp.length();
+            if(Math.abs(len - 2f) > 0.2f) throw new AssertionError("spline length " + len);
+            if(Math.abs(sp.nearestT(new com.hollow.core.Vec3(1.1f, 0, 0)) - 0.55f) > 0.05f) throw new AssertionError("nearestT");
+
+            for(float f : new float[]{0f, 1f, -1f, 0.25f, 123.5f, -0.0001f, 65504f}){
+                float rt = com.hollow.core.HalfFloat.toFloat(com.hollow.core.HalfFloat.toHalf(f));
+                float tol = Math.abs(f) > 60000f ? 40f : Math.abs(f) * 0.001f + 1e-6f;
+                if(Math.abs(rt - f) > tol) throw new AssertionError("half roundtrip " + f + " -> " + rt);
+            }
+            if(!com.hollow.core.Guid.isValid(com.hollow.core.Guid.create())) throw new AssertionError("guid format");
+
+            com.hollow.core.Vec4 q4 = new com.hollow.core.Vec4(1,2,3,4).norm();
+            if(Math.abs(q4.len() - 1f) > 1e-4f) throw new AssertionError("vec4 norm");
+
+            com.hollow.core.Rect r1 = new com.hollow.core.Rect(0,0,10,10), r2 = new com.hollow.core.Rect(5,5,10,10);
+            if(!r1.intersects(r2) || r1.intersection(r2).area() != 25f) throw new AssertionError("rect intersect");
+            if(!r1.contains(5,5) || r1.contains(11,5)) throw new AssertionError("rect contains");
+
+            com.hollow.core.Plane pl = com.hollow.core.Plane.fromNormalPoint(new com.hollow.core.Vec3(0,1,0), new com.hollow.core.Vec3(0,2,0));
+            if(Math.abs(pl.distance(new com.hollow.core.Vec3(0,5,0)) - 3f) > 1e-4f) throw new AssertionError("plane dist");
+            if(pl.boxSide(com.hollow.core.AABB.fromCenterExtents(new com.hollow.core.Vec3(0,4,0), new com.hollow.core.Vec3(1,1,1))) != 1)
+                throw new AssertionError("plane boxSide front");
+            pass("ease/spline/half/guid/vec4/rect/plane");
+        } catch(Throwable t){ fail("math-utils", t); failures++; }
+        // --- Prefab: instantiate + de-dup names + round-trip ---
+        try {
+            com.hollow.scene.World w = com.hollow.scene.World.empty("test");
+            com.hollow.scene.Entity src = w.spawn("lamp");
+            src.tag = "light";
+            src.position.set(1, 2, 3);
+            String json = com.hollow.scene.Prefab.toPrefabJson(src);
+            com.hollow.scene.Prefab pf = com.hollow.scene.Prefab.fromJson(json);
+            com.hollow.scene.Entity e1 = pf.instantiate(w, new com.hollow.core.Vec3(4,4,4));
+            com.hollow.scene.Entity e2 = pf.instantiate(w, null);
+            if(e1.position.dist(new com.hollow.core.Vec3(4,4,4)) > 1e-4f) throw new AssertionError("prefab pos override");
+            if(e1.name.equals(e2.name)) throw new AssertionError("name de-dup " + e1.name + "/" + e2.name);
+            if(!e1.tag.equals("light")) throw new AssertionError("prefab tag");
+            pass("prefab instantiate/round-trip");
+        } catch(Throwable t){ fail("prefab", t); failures++; }
         System.out.println();
         if(failures > 0){
             System.out.println("RESULT: " + failures + " self test(s) FAILED");

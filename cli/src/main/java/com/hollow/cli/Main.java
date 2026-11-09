@@ -1,6 +1,7 @@
 package com.hollow.cli;
 
 import com.hollow.core.FileSystem;
+import com.hollow.core.EngineVersion;
 import com.hollow.core.Json;
 import com.hollow.core.Log;
 import com.hollow.core.NativeFS;
@@ -34,6 +35,8 @@ public final class Main {
                 case "audio-render": Commands.audioRender(args); break;
                 case "eqs": Commands.eqsTest(args); break;
                 case "selftest": Commands.selfTest(); break;
+                // v2.1 — interactive console (Batch 1)
+                case "shell": case "repl": System.exit(Shell.run(args)); break;
                 default:
                     System.err.println("unknown command: " + cmd);
                     help();
@@ -74,8 +77,9 @@ public final class Main {
     }
 
     static void version(){
-        System.out.println("HollowEngine 2.0.0 (general-purpose, pure Java, Android + Linux CLI)");
+        System.out.println(EngineVersion.FULL);
         System.out.println("Gradle modules: :engine :cli :runtime-android");
+        System.out.println("feature matrix: 570 items — docs/FEATURES.md");
     }
 
     static void help(){
@@ -98,6 +102,9 @@ public final class Main {
               net test                             in-process server/client loopback test
               build apk -p <project>               produce signed APK in dist/
               clean -p <project>                   remove build outputs
+              shell                                interactive REPL console (world/actor/cvar/batch)
+              shell -c "cmd1; cmd2"                run one shell line non-interactively
+              shell -f session.hvefile             run a .hvefile batch script
             
             project layout: projects/<name>/{project.json, scenes/, raw/, assets/, scripts/, ai/, ui/, strings/, input.json}
             """);
