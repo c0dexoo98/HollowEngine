@@ -44,7 +44,7 @@ public final class MathX {
         public boolean chance(float p){ return nextFloat() < p; }
         public Vec3 insideUnitSphere(){
             while(true){
-                float x=range(-1,1), y=range(-1,1), z=range(-1,1);
+                float x=range(-1f,1f), y=range(-1f,1f), z=range(-1f,1f);   // float overload!
                 float l2 = x*x+y*y+z*z;
                 if(l2 < 1 && l2 > 1e-6f) return new Vec3(x,y,z);
             }

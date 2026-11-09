@@ -138,6 +138,8 @@ public abstract class GameApp {
         com.hollow.core.Profiler.frame();
         onFrameUpdate(svc.time.deltaTime);
         svc.time.frame++;
+        // MEM-012: per-frame scratch arena resets automatically at frame end
+        com.hollow.core.FrameArena.endFrame();
     }
 
     // ------------- helpers for subclasses -------------

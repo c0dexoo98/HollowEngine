@@ -12,10 +12,20 @@ import java.util.Map;
 public final class Scene {
 
     // ---------------- load ----------------
+    /** world currently being populated (for child-component registry lookup) */
+    public static World currentLoadingWorld;
+    /** file system of the scene being loaded (prefab extends resolution) */
+    public static com.hollow.core.FileSystem currentLoadingFS;
+
     public static World load(String path, com.hollow.core.FileSystem fs){
         try {
             String text = fs.readText(path);
-            return loadFromJson(Json.parseObj(text), simpleName(path));
+            currentLoadingFS = fs;
+            currentLoadingWorld = null;
+            World w = loadFromJson(Json.parseObj(text), simpleName(path));
+            currentLoadingWorld = null;
+            currentLoadingFS = null;
+            return w;
         } catch(Exception e){
             Log.e("Scene", "failed to load scene " + path, e);
             World w = World.empty(simpleName(path));
@@ -25,6 +35,7 @@ public final class Scene {
 
     public static World loadFromJson(Map<String,Object> root, String name){
         World w = World.empty(name);
+        currentLoadingWorld = w;
         Map<String,Object> env = Json.obj(root.get("environment"));
         if(env != null) w.environment = env;
         w.name = Json.str(root.get("name"), name);

@@ -140,4 +140,37 @@ public final class Mat4 {
     public static Mat4 translation(Vec3 p){
         Mat4 r = new Mat4(); r.m[12]=p.x; r.m[13]=p.y; r.m[14]=p.z; return r;
     }
+
+    // ---------------- v2.2 projections (MATH-028) ----------------
+
+    /** off-center orthographic projection (shadow cascades, oblique frusta, portals) */
+    public static Mat4 orthoOffCenter(float left, float right, float bottom, float top,
+                                      float near, float far){
+        return ortho(left, right, bottom, top, near, far);   // same math; kept as named API
+    }
+
+    /** reversed-Z perspective (near = 1 → far = 0): far better depth precision with
+     *  a float depth buffer — pairs with GREATER depth test + cleared-to-0 depth. */
+    public static Mat4 perspectiveReversedZ(float fovYDeg, float aspect, float near, float far){
+        Mat4 std = perspective(fovYDeg, aspect, near, far);
+        Mat4 r = new Mat4();
+        // flip Z mapping: z' = 1 - z'
+        r.m[0]=std.m[0]; r.m[5]=std.m[5];
+        r.m[10]=-std.m[10]; r.m[11]=std.m[11];
+        r.m[14]=-std.m[14];
+        return r;
+    }
+
+    /** logarithmic depth distribution projection (Gribb-Hartmann + log warp).
+     *  Mixed-precision depth for huge view distances on 24-bit fixed depth buffers. */
+    public static Mat4 perspectiveLogDepth(float fovYDeg, float aspect, float near, float far, float logC){
+        Mat4 r = perspective(fovYDeg, aspect, near, far);
+        // vertex shader must post-warp gl_Position.z with: z = log(max(1e-6, w + 1)) * logC - 1
+        // we store logC in an unused slot for the shader to pick up.
+        r.m[9] = logC;
+        return r;
+    }
+
+    /** extracts the log-depth constant stored by {@link #perspectiveLogDepth} */
+    public float logDepthC(){ return m[9]; }
 }

@@ -129,5 +129,48 @@ public final class AssetDB {
 
     public void clearCaches(){
         meshCache.clear(); modelCache.clear(); imageCache.clear(); audioCache.clear(); atlasCache.clear();
+        refCounts.clear();
+    }
+
+    // ------------- v2.2 refcounting (MEM-015) -------------
+    private final java.util.Map<String, Integer> refCounts = new java.util.HashMap<>();
+
+    /** claim a reference on a cached asset (call when a system starts using it) */
+    public synchronized void retain(String path){
+        refCounts.merge(path, 1, Integer::sum);
+    }
+    /** drop a reference; asset stays cached but becomes evictable at refcount 0 */
+    public synchronized void release(String path){
+        Integer c = refCounts.get(path);
+        if(c == null) return;
+        if(c <= 1) refCounts.remove(path); else refCounts.put(path, c - 1);
+    }
+    public synchronized int refCount(String path){
+        return refCounts.getOrDefault(path, 0);
+    }
+
+    /** evict cached assets with zero references (memory pressure hook).
+     *  Registered runtime images are never evicted. Returns evicted count. */
+    public synchronized int evictUnreferenced(){
+        int evicted = 0;
+        evicted += evictIfIdle(meshCache, refCounts);
+        evicted += evictIfIdle(modelCache, refCounts);
+        evicted += evictIfIdle(imageCache, refCounts);
+        evicted += evictIfIdle(audioCache, refCounts);
+        evicted += evictIfIdle(atlasCache, refCounts);
+        return evicted;
+    }
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static int evictIfIdle(java.util.Map cache, java.util.Map<String, Integer> refs){
+        int n = 0;
+        java.util.Iterator<java.util.Map.Entry<String, ?>> it = cache.entrySet().iterator();
+        while(it.hasNext()){
+            java.util.Map.Entry<String, ?> e = it.next();
+            if(!refs.containsKey(e.getKey())){ it.remove(); n++; }
+        }
+        return n;
+    }
+    public synchronized int cachedCount(){
+        return meshCache.size() + modelCache.size() + imageCache.size() + audioCache.size() + atlasCache.size();
     }
 }

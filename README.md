@@ -11,8 +11,19 @@
 > **v2.1** (`hollow-foundation`, Batch 1) — پوسته تعاملی `hollow shell` (REPL + .hvefile)،
 > سیستم CVar، کنسول فرمان، CrashHandler، Watchdog، JobQueue، Subsystems، Pool/Arena/RingBuffer/ReleaseQueue،
 > MemoryStats، Noise/PCG/Ease/Spline/HalfFloat/Vec4/Rect/Plane، Guid، Prefab، Result.
-> چک‌لیست مستر ۵۷۰ قابلیت: `docs/FEATURES.md` (۲۷۶ انجام‌شده، ۲۹۴ در صف ۶ نوبتی).
+> چک‌لیست مستر ۵۷۰ قابلیت: `docs/FEATURES.md` (۳۰۹ انجام‌شده، ۲۶۱ در صف).
 > World Streaming، Profiler + بیلد تست خودکار.
+>
+> **v2.2** (تکمیل Batch 1 + شروع Batch 2) — حافظه: FrameArena خودریست، EntityPool، WeakPool،
+> شمارش مرجع AssetDB + تخلیه خودکار، **کدک LZ4 خالص‌جاوا**، MappedFile، Scratch بدون تخصیص،
+> MeshStager، LeakTracker. ریاضی: OBB با SAT، Barycentric/مثلث، کروی/استوانه‌ای،
+> Poisson-disk/Fibonacci، **کره محصورکننده Welzl**، پک رأس half3+octahedral،
+> پروجکشن‌های Reversed-Z/Log-depth/Ortho-off-center، FloatTrack با easing و loop،
+> **QuatSpline (squad)**. صحنه: لایه‌های bitmask، متادیتا، وراثت Prefab (زنجیره extends)،
+> سوکت استخوان در سطح Entity، کامپوننت فرزند، spawn تعلیقی یک‌فریمی، ایندکس معکوس
+> کامپوننت‌ها، Snapshot/Restore (undo ادیتور)، قفل خواندن/نوشتن چندنخی، تبدیل
+> fragment↔prefab، رویداد onChildRemoved، عمق/پیمایش ترتیبی، انعکاس props.
+> تست: `hollow selftest` — ۴۰ تست (همه سبز).
 
 ---
 

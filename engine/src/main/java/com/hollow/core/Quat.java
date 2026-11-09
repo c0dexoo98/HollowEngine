@@ -65,6 +65,13 @@ public final class Quat {
         }
         return this;
     }
+    /** dot product (also the cosine of half the relative angle for unit quats) */
+    public float dot(Quat o){ return x*o.x + y*o.y + z*o.z + w*o.w; }
+    /** 3D rotation distance in degrees between two unit quats (shortest arc) */
+    public float dist(Quat o){
+        float d = Math.abs(dot(o));
+        return (float)Math.toDegrees(2 * Math.acos(Math.min(1f, d)));
+    }
     /** inverse (conjugate/norm²) — HollowEngine 2.0 */
     public Quat invert(){
         float l2 = x*x+y*y+z*z+w*w;

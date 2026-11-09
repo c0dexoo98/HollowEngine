@@ -921,6 +921,455 @@ public final class Commands {
             if(!e1.tag.equals("light")) throw new AssertionError("prefab tag");
             pass("prefab instantiate/round-trip");
         } catch(Throwable t){ fail("prefab", t); failures++; }
+
+        // ================= v2.2 additions =================
+        // --- LZ4 roundtrip (MEM-016) ---
+        try {
+            java.util.Random r = new java.util.Random(7);
+            byte[] random = new byte[5000]; r.nextBytes(random);
+            byte[] repetitive = new byte[5000];
+            for(int i = 0; i < repetitive.length; i++) repetitive[i] = (byte)("HOLLOWVALE".charAt(i % 10));
+            for(byte[] src : new byte[][]{ random, repetitive, new byte[0], new byte[]{1,2,3} }){
+                byte[] packed = com.hollow.core.LZ4.pack(src);
+                byte[] out = com.hollow.core.LZ4.unpack(packed);
+                if(!java.util.Arrays.equals(src, out)) throw new AssertionError("roundtrip mismatch len=" + src.length);
+            }
+            byte[] big = new byte[256 * 1024];
+            for(int i = 0; i < big.length; i++) big[i] = (byte)(i % 7);
+            byte[] packedBig = com.hollow.core.LZ4.pack(big);
+            if(packedBig.length >= big.length) throw new AssertionError("no compression on repetitive data: " + packedBig.length);
+            if(!java.util.Arrays.equals(com.hollow.core.LZ4.unpack(packedBig), big)) throw new AssertionError("validity check");
+            pass("LZ4 compress/decompress roundtrip (" + big.length + "->" + packedBig.length + "B on patterned)");
+        } catch(Throwable t){ fail("lz4", t); failures++; }
+        // --- OBB SAT (MATH-022) ---
+        try {
+            com.hollow.core.OBB a = new com.hollow.core.OBB(new com.hollow.core.Vec3(0,0,0), new com.hollow.core.Vec3(1,1,1), new com.hollow.core.Quat());
+            com.hollow.core.OBB b = new com.hollow.core.OBB(new com.hollow.core.Vec3(1.5f,0,0), new com.hollow.core.Vec3(1,1,1), new com.hollow.core.Quat());
+            com.hollow.core.OBB c = new com.hollow.core.OBB(new com.hollow.core.Vec3(5,0,0), new com.hollow.core.Vec3(1,1,1), new com.hollow.core.Quat());
+            if(!a.overlaps(b)) throw new AssertionError("a/b should overlap");
+            if(a.overlaps(c)) throw new AssertionError("a/c should not overlap");
+            // rotated boxes that AABBs would miss
+            com.hollow.core.OBB r1 = new com.hollow.core.OBB(new com.hollow.core.Vec3(0,0,0), new com.hollow.core.Vec3(2,0.2f,2), com.hollow.core.Quat.fromEuler(0, 45, 0));
+            com.hollow.core.OBB r2 = new com.hollow.core.OBB(new com.hollow.core.Vec3(0,0.35f,0), new com.hollow.core.Vec3(2,0.2f,2), com.hollow.core.Quat.fromEuler(0, -45, 0));
+            if(!r1.overlaps(r2)) throw new AssertionError("rotated cross should overlap");
+            com.hollow.core.Vec3 cp = a.closestPoint(new com.hollow.core.Vec3(3, 0.5f, 0.5f));
+            if(Math.abs(cp.x - 1f) > 1e-4f) throw new AssertionError("closest point " + cp);
+            if(!a.contains(new com.hollow.core.Vec3(0.5f, -0.5f, 0.5f))) throw new AssertionError("contains");
+            if(!a.overlapsAABB(com.hollow.core.AABB.fromCenterExtents(new com.hollow.core.Vec3(1,0,0), new com.hollow.core.Vec3(1,1,1)))) throw new AssertionError("obb/aabb");
+            pass("OBB SAT overlap/closest/contains");
+        } catch(Throwable t){ fail("obb", t); failures++; }
+        // --- Geometry: barycentric / Welzl / spherical (MATH-023/024/026) ---
+        try {
+            com.hollow.core.Vec3 A = new com.hollow.core.Vec3(0,0,0), B = new com.hollow.core.Vec3(4,0,0), C = new com.hollow.core.Vec3(0,4,0);
+            float[] bc = com.hollow.core.Geometry.barycentric(new com.hollow.core.Vec3(1,1,0), A, B, C);
+            if(bc == null || Math.abs(bc[0] - 0.5f) > 1e-4f || Math.abs(bc[1] - 0.25f) > 1e-4f) throw new AssertionError("barycentric " + java.util.Arrays.toString(bc));
+            if(!com.hollow.core.Geometry.pointInTriangle(new com.hollow.core.Vec3(1,1,0), A, B, C, 1e-4f)) throw new AssertionError("inside");
+            if(com.hollow.core.Geometry.pointInTriangle(new com.hollow.core.Vec3(3,3,0), A, B, C, 1e-4f)) throw new AssertionError("outside");
+            com.hollow.core.Vec3 cp2 = com.hollow.core.Geometry.closestPointOnTriangle(new com.hollow.core.Vec3(5,5,0), A, B, C);
+            if(Math.abs(cp2.x - 2f) > 1e-4f || Math.abs(cp2.y - 2f) > 1e-4f) throw new AssertionError("closest on tri " + cp2);
+
+            com.hollow.core.Vec3[] cloud = new com.hollow.core.Vec3[64];
+            com.hollow.core.MathX.Rng rng = new com.hollow.core.MathX.Rng(123);
+            for(int i = 0; i < cloud.length; i++){
+                cloud[i] = rng.range(-10f, 10f) != 0 ? rng.insideUnitSphere().scale(10f) : new com.hollow.core.Vec3(1,1,1);
+            }
+            com.hollow.core.Geometry.BoundingSphere s = com.hollow.core.Geometry.minSphere(cloud);
+            for(com.hollow.core.Vec3 p : cloud){
+                if(!s.contains(p)) throw new AssertionError("Welzl missed point, r=" + s.radius);
+            }
+            if(s.radius > 12f) throw new AssertionError("Welzl sphere too big: " + s.radius);
+
+            float[] sph = com.hollow.core.Geometry.toSpherical(new com.hollow.core.Vec3(0, 1, 0));
+            if(Math.abs(sph[2] - 0f) > 1e-3f) throw new AssertionError("north pole phi=" + sph[2]);
+            com.hollow.core.Vec3 back = com.hollow.core.Geometry.fromSpherical(sph[0], sph[1], sph[2]);
+            if(Math.abs(back.y - 1f) > 1e-4f) throw new AssertionError("spherical roundtrip " + back);
+            pass("barycentric/pointInTri/Welzl/spherical");
+        } catch(Throwable t){ fail("geometry", t); failures++; }
+        // --- Sampling: poisson disk (MATH-025) ---
+        try {
+            com.hollow.core.RandomStream rs = new com.hollow.core.RandomStream(42);
+            java.util.List<com.hollow.core.Sampling.P2> pts = com.hollow.core.Sampling.poissonDisk(0.08f, rs, 20000);
+            if(pts.size() < 30 || pts.size() > 200) throw new AssertionError("poisson count " + pts.size());
+            float minD = Float.MAX_VALUE;
+            for(int i = 0; i < pts.size(); i++)
+                for(int j = i + 1; j < pts.size(); j++)
+                    minD = Math.min(minD, (float)Math.sqrt((pts.get(i).x - pts.get(j).x) * (pts.get(i).x - pts.get(j).x) + (pts.get(i).y - pts.get(j).y) * (pts.get(i).y - pts.get(j).y)));
+            if(minD < 0.079f) throw new AssertionError("poisson min dist " + minD);
+            java.util.List<com.hollow.core.Vec3> sphere = com.hollow.core.Sampling.fibonacciSphere(100);
+            float sy = 0;
+            for(com.hollow.core.Vec3 v : sphere) sy += v.y;
+            if(Math.abs(sy) > 1e-3f) throw new AssertionError("fib sphere not balanced: " + sy);
+            pass("poisson-disk (" + pts.size() + " pts, min-d=" + String.format("%.4f", minD) + ") + fib sphere");
+        } catch(Throwable t){ fail("sampling", t); failures++; }
+        // --- VertexPacker: octahedral + half3 (MATH-027) ---
+        try {
+            float maxErr = 0;
+            for(int i = 0; i < 360; i += 7){
+                for(int j = -80; j <= 80; j += 11){
+                    com.hollow.core.Vec3 n = com.hollow.core.Geometry.fromSpherical(1, i, j + 90);
+                    int packed = com.hollow.core.VertexPacker.packOctahedral(n);
+                    com.hollow.core.Vec3 back = com.hollow.core.VertexPacker.unpackOctahedral(packed);
+                    maxErr = Math.max(maxErr, back.dist(n));
+                }
+            }
+            if(maxErr > 0.01f) throw new AssertionError("octahedral error " + maxErr);
+            int vc = 16;
+            float[] pos = new float[vc * 3], nrm = new float[vc * 3], uv = new float[vc * 2];
+            for(int i = 0; i < vc; i++){
+                pos[i*3] = i * 0.1f; pos[i*3+1] = -3.25f; pos[i*3+2] = 120.5f;
+                com.hollow.core.Vec3 n = com.hollow.core.Geometry.fromSpherical(1, i * 13, i * 7 + 30);
+                nrm[i*3] = n.x; nrm[i*3+1] = n.y; nrm[i*3+2] = n.z;
+                uv[i*2] = 0.33f; uv[i*2+1] = -0.75f;
+            }
+            byte[] packed = com.hollow.core.VertexPacker.packP3N2T2(pos, nrm, uv, vc);
+            if(packed.length != vc * com.hollow.core.VertexPacker.STRIDE_P3N2T2) throw new AssertionError("stride");
+            float[][] back = com.hollow.core.VertexPacker.unpackP3N2T2(packed, vc);
+            if(Math.abs(back[0][4] - (-3.25f)) > 0.01f) throw new AssertionError("half3 pos " + back[0][4]);
+            if(Math.abs(back[2][1] - (-0.75f)) > 0.01f) throw new AssertionError("half uv " + back[2][1]);
+            pass("vertex packer octa/half (maxErr=" + String.format("%.5f", maxErr) + ")");
+        } catch(Throwable t){ fail("vertexpacker", t); failures++; }
+        // --- FloatTrack easing/extrapolation (MATH-029) ---
+        try {
+            com.hollow.core.FloatTrack t1 = new com.hollow.core.FloatTrack(
+                new float[]{0, 1, 2}, new float[]{0, 10, 0}, null, com.hollow.core.FloatTrack.Extrapolate.CLAMP);
+            if(t1.sample(0.5f) <= 1f || t1.sample(0.5f) >= 9f) throw new AssertionError("mid sample " + t1.sample(0.5f));
+            if(t1.sample(5f) != 0f) throw new AssertionError("clamp end " + t1.sample(5f));
+            com.hollow.core.FloatTrack loop = new com.hollow.core.FloatTrack(
+                new float[]{0, 1}, new float[]{0, 4},
+                new com.hollow.core.FloatTrack.Ease[]{ com.hollow.core.FloatTrack.Ease.LINEAR, com.hollow.core.FloatTrack.Ease.LINEAR },
+                com.hollow.core.FloatTrack.Extrapolate.LOOP);
+            if(Math.abs(loop.sample(2.25f) - 1f) > 1e-3f) throw new AssertionError("loop wrap " + loop.sample(2.25f));
+            com.hollow.core.FloatTrack step = new com.hollow.core.FloatTrack(
+                new float[]{0, 1, 2}, new float[]{5, 7, 9},
+                new com.hollow.core.FloatTrack.Ease[]{ com.hollow.core.FloatTrack.Ease.STEP, com.hollow.core.FloatTrack.Ease.LINEAR },
+                null);
+            if(step.sample(0.9f) != 5f) throw new AssertionError("step hold " + step.sample(0.9f));
+            if(step.sample(1.5f) != 8f) throw new AssertionError("linear seg " + step.sample(1.5f));
+            float b = com.hollow.core.FloatTrack.applyEase(0.8f, com.hollow.core.FloatTrack.Ease.BOUNCE);
+            if(b < 0f || b > 1.01f) throw new AssertionError("bounce range " + b);
+            pass("FloatTrack ease/loop/step");
+        } catch(Throwable t){ fail("floattrack", t); failures++; }
+        // --- QuatSpline squad (MATH-030) ---
+        try {
+            com.hollow.core.Quat[] keys = {
+                com.hollow.core.Quat.fromAxisAngle(0, 1, 0, 0),
+                com.hollow.core.Quat.fromAxisAngle(0, 1, 0, 90),
+                com.hollow.core.Quat.fromAxisAngle(0, 1, 0, 180)
+            };
+            com.hollow.core.QuatSpline sp = new com.hollow.core.QuatSpline(new float[]{0, 1, 2}, keys);
+            com.hollow.core.Quat mid = sp.sample(1.0f);
+            // squad with weight 2t(1-t) hits keys exactly at key times
+            if(mid.dist(keys[1]) > 1e-3f) throw new AssertionError("squad key hit: dist=" + mid.dist(keys[1]));
+            com.hollow.core.Quat start = sp.sample(0f);
+            if(start.dist(keys[0]) > 1e-4f) throw new AssertionError("spline start");
+            com.hollow.core.Quat half = sp.sample(0.5f);
+            float halfAngle = (float)Math.toDegrees(Math.acos(Math.max(-1f, Math.min(1f, half.dot(keys[0])))) * 2);
+            if(halfAngle < 20f || halfAngle > 70f) throw new AssertionError("mid in range, got " + halfAngle);
+            pass("QuatSpline squad endpoints + midpoint (" + String.format("%.1f\u00b0", halfAngle) + ")");
+        } catch(Throwable t){ fail("quatspline", t); failures++; }
+        // --- Mat4 reversed-Z / log depth (MATH-028) ---
+        try {
+            com.hollow.core.Mat4 rz = com.hollow.core.Mat4.perspectiveReversedZ(60, 1.77f, 0.1f, 100f);
+            com.hollow.core.Mat4 std = com.hollow.core.Mat4.perspective(60, 1.77f, 0.1f, 100f);
+            // near point: reversed-Z maps to w≈1 (depth ~1), standard maps to 0
+            com.hollow.core.Vec3 near = rz.transformPoint(new com.hollow.core.Vec3(0, 0, -0.1f));
+            com.hollow.core.Vec3 far = rz.transformPoint(new com.hollow.core.Vec3(0, 0, -100f));
+            if(near.z <= far.z) throw new AssertionError("reversed-Z order near=" + near.z + " far=" + far.z);
+            com.hollow.core.Mat4 log = com.hollow.core.Mat4.perspectiveLogDepth(60, 1.77f, 0.1f, 500f, 3.5f);
+            if(Math.abs(log.logDepthC() - 3.5f) > 1e-6f) throw new AssertionError("logC stored");
+            pass("reversed-Z + log-depth projections");
+        } catch(Throwable t){ fail("mat4-proj", t); failures++; }
+        // --- FrameArena (MEM-012) + Scratch (MEM-018) ---
+        try {
+            com.hollow.core.ArenaAllocator fa = com.hollow.core.FrameArena.get();
+            fa.reset();
+            int a1 = fa.alloc(128);
+            fa.putInt(a1, 0xDEADBEEF);
+            com.hollow.core.FrameArena.endFrame();
+            if(fa.used() != 0) throw new AssertionError("arena not reset: " + fa.used());
+            if(fa.getInt(a1) == 0xDEADBEEF) { /* memory may persist, fine */ }
+            if(com.hollow.core.FrameArena.resets() < 1) throw new AssertionError("reset counter");
+            float[] scratch = com.hollow.core.Scratch.get().floats(1000);
+            scratch[999] = 3.14f;
+            float[] again = com.hollow.core.Scratch.get().floats(500);
+            if(again[999] != 3.14f) throw new AssertionError("scratch not reused");
+            pass("FrameArena auto-reset + Scratch reuse");
+        } catch(Throwable t){ fail("framearena", t); failures++; }
+        // --- WeakPool (MEM-014) ---
+        try {
+            com.hollow.core.WeakPool<String, byte[]> wp = new com.hollow.core.WeakPool<>(k -> new byte[64]);
+            byte[] v1 = wp.get("a");
+            byte[] v2 = wp.get("a");
+            if(v1 != v2) throw new AssertionError("cache hit returned different instance");
+            if(wp.hits() != 1 || wp.misses() != 1) throw new AssertionError("hit/miss " + wp.hits() + "/" + wp.misses());
+            wp.invalidate("a");
+            if(wp.size() != 0) throw new AssertionError("invalidate");
+            pass("WeakPool hit/miss/invalidate");
+        } catch(Throwable t){ fail("weakpool", t); failures++; }
+        // --- MappedFile (MEM-017) ---
+        try {
+            java.nio.file.Path tmp = java.nio.file.Path.of("build/selftest-mmap.bin");
+            java.nio.file.Files.createDirectories(tmp.getParent());
+            byte[] data = new byte[70000];
+            for(int i = 0; i < data.length; i++) data[i] = (byte)(i * 31);
+            java.nio.file.Files.write(tmp, data);
+            com.hollow.core.MappedFile mf = com.hollow.core.MappedFile.open(tmp.toString());
+            if(mf.size() != data.length) throw new AssertionError("size");
+            byte[] all = mf.readAll();
+            if(!java.util.Arrays.equals(data, all)) throw new AssertionError("readAll");
+            byte[] slice = mf.read(100, 50);
+            if(slice[0] != data[100]) throw new AssertionError("slice");
+            if(mf.readIntLE(8) != (data[8] & 0xFF | (data[9] & 0xFF) << 8 | (data[10] & 0xFF) << 16 | (data[11] & 0xFF) << 24))
+                throw new AssertionError("intLE");
+            mf.close();
+            pass("MappedFile read/slice (" + (mf.isMapped() ? "mmap" : "fallback") + ")");
+        } catch(Throwable t){ fail("mappedfile", t); failures++; }
+        // --- LeakTracker (MEM-020) ---
+        try {
+            com.hollow.core.LeakTracker.resetForTest();
+            int id1 = com.hollow.core.LeakTracker.register("Texture", "test://tex1", () -> {});
+            int id2 = com.hollow.core.LeakTracker.register("Buffer", "test://buf1", () -> {});
+            if(com.hollow.core.LeakTracker.liveCount() != 2) throw new AssertionError("live");
+            com.hollow.core.LeakTracker.dispose(id1);
+            if(com.hollow.core.LeakTracker.liveCount() != 1) throw new AssertionError("after dispose");
+            String report = com.hollow.core.LeakTracker.reportLeaks();
+            if(!report.contains("Buffer")) throw new AssertionError("report missing entry");
+            com.hollow.core.LeakTracker.dispose(id2);
+            if(!com.hollow.core.LeakTracker.reportLeaks().isEmpty()) throw new AssertionError("clean report");
+            pass("LeakTracker register/dispose/report");
+        } catch(Throwable t){ fail("leaktracker", t); failures++; }
+        // --- EntityPool (MEM-013) ---
+        try {
+            com.hollow.scene.World w = com.hollow.scene.World.empty("pooltest");
+            com.hollow.scene.EntityPool pool = new com.hollow.scene.EntityPool(w, "bullet",
+                com.hollow.scene.SpriteComponent::new);
+            pool.prewarm(4);
+            com.hollow.scene.Entity[] live = new com.hollow.scene.Entity[8];
+            for(int i = 0; i < 8; i++){
+                live[i] = pool.obtain();
+                if(!live[i].has("SpriteComponent")) throw new AssertionError("components missing on reuse: " + live[i].components.keySet());
+                if(live[i].destroyed || !live[i].active) throw new AssertionError("obtained entity state");
+            }
+            if(pool.live() != 8) throw new AssertionError("live count " + pool.live());
+            for(int i = 0; i < 4; i++) pool.release(live[i]);
+            if(pool.live() != 4 || pool.idle() != 4) throw new AssertionError("release counts " + pool.stats());
+            com.hollow.scene.Entity recycled = pool.obtain();
+            if(recycled != live[0] && recycled != live[1] && recycled != live[2] && recycled != live[3])
+                throw new AssertionError("not recycled from free list");
+            pass("EntityPool prewarm/recycle (" + pool.stats() + ")");
+        } catch(Throwable t){ fail("entitypool", t); failures++; }
+        // --- Entity meta/layers + World byLayer/deferred/index (OBJ-017/021/022/026) ---
+        try {
+            com.hollow.scene.World w = com.hollow.scene.World.empty("feat");
+            com.hollow.scene.Entity e = w.spawn("hero").setMeta("hp", 100).setLayers(0b1010);
+            if(!Integer.valueOf(100).equals(e.getMeta("hp"))) throw new AssertionError("meta");
+            if(!e.inLayer(0b1000) || e.inLayer(0b0100)) throw new AssertionError("layers");
+            com.hollow.scene.Entity f = w.spawn("crate").setLayers(0b0010);
+            if(w.byLayer(0b0010).size() != 2) throw new AssertionError("byLayer " + w.byLayer(0b0010).size());
+            // deferred spawn
+            com.hollow.scene.Entity d = w.spawnDeferred("ghost");
+            if(w.count() != 2) throw new AssertionError("deferred spawned early");
+            if(w.pendingSpawnCount() != 1) throw new AssertionError("pending count");
+            w.update(0.016f);
+            if(w.count() != 3 || d.destroyed) throw new AssertionError("flushSpawn");
+            // reverse index (component keys are class simple names)
+            d.add(new com.hollow.scene.SpriteComponent());
+            w.invalidateIndex();
+            if(w.byComponentCached("SpriteComponent").size() != 1) throw new AssertionError("cached index");
+            if(w.byComponentCached("SpriteComponent").size() != 1) throw new AssertionError("cached index second call");
+            if(!w.indexStats().contains("builds=1")) throw new AssertionError("index stats " + w.indexStats());
+            pass("layers/meta/deferredSpawn/reverseIndex");
+        } catch(Throwable t){ fail("world-feats", t); failures++; }
+        // --- snapshot/restore (OBJ-023) ---
+        try {
+            com.hollow.scene.World w = com.hollow.scene.World.empty("snap");
+            com.hollow.scene.Entity e = w.spawn("door");
+            e.position.set(3, 4, 5);
+            e.rotation.set(com.hollow.core.Quat.fromAxisAngle(0, 1, 0, 45));
+            com.hollow.scene.EntitySnapshot snap = com.hollow.scene.EntitySnapshot.capture(e, false);
+            e.position.set(0, 0, 0);
+            e.rotation.identity();
+            snap.restore(e, false);
+            if(e.position.dist(new com.hollow.core.Vec3(3, 4, 5)) > 1e-4f) throw new AssertionError("pos restore " + e.position);
+            if(e.rotation.dist(com.hollow.core.Quat.fromAxisAngle(0, 1, 0, 45)) > 0.5f) throw new AssertionError("rot restore " + e.rotation.dist(com.hollow.core.Quat.fromAxisAngle(0, 1, 0, 45)));
+            String json = snap.toJson();
+            com.hollow.scene.EntitySnapshot s2 = com.hollow.scene.EntitySnapshot.fromJson(json);
+            e.position.set(9, 9, 9);
+            s2.restore(e, false);
+            if(e.position.dist(new com.hollow.core.Vec3(3, 4, 5)) > 1e-4f) throw new AssertionError("json roundtrip");
+            pass("EntitySnapshot capture/restore/json");
+        } catch(Throwable t){ fail("snapshot", t); failures++; }
+        // --- reparent preserving world transform (OBJ-027) + depth/traverse (OBJ-029) ---
+        try {
+            com.hollow.scene.World w = com.hollow.scene.World.empty("hier");
+            com.hollow.scene.Entity parent = w.spawn("parent");
+            parent.position.set(10, 0, 0);
+            com.hollow.scene.Entity child = w.spawn("child");
+            child.position.set(5, 0, 0);
+            parent.addChild(child);
+            com.hollow.core.Vec3 worldBefore = child.worldPosition().cpy();
+            child.reparentPreservingWorld(null);
+            if(child.worldPosition().dist(worldBefore) > 1e-3f) throw new AssertionError("world moved " + child.worldPosition());
+            if(child.parent() != null) throw new AssertionError("should be root");
+            com.hollow.scene.Entity grand = w.spawn("grand");
+            grand.position.set(0, 5, 0);
+            grand.addChild(parent);
+            child.reparentPreservingWorld(grand);
+            if(child.worldPosition().dist(worldBefore) > 1e-3f) throw new AssertionError("world moved 2 " + child.worldPosition());
+            if(child.depth() != 1) throw new AssertionError("depth " + child.depth());
+            if(grand.depth() != 0) throw new AssertionError("root depth");
+            final int[] visited = { 0 };
+            w.traverseAll(e2 -> visited[0]++);
+            if(visited[0] != 3) throw new AssertionError("traverseAll " + visited[0]);
+            if(w.maxDepth() != 2) throw new AssertionError("maxDepth " + w.maxDepth());
+            pass("reparentPreserveWorld/depth/traverse");
+        } catch(Throwable t){ fail("hierarchy", t); failures++; }
+        // --- child-removed events (OBJ-028) ---
+        try {
+            com.hollow.scene.World w = com.hollow.scene.World.empty("events");
+            com.hollow.scene.Entity room = w.spawn("room");
+            com.hollow.scene.Entity chair = w.spawn("chair");
+            room.addChild(chair);
+            final String[] fired = { null };
+            room.addListener((child, destroyed) -> fired[0] = child.name + (destroyed ? "!" : ""));
+            room.removeChild(chair);
+            if(!"chair".equals(fired[0])) throw new AssertionError("removeChild event " + fired[0]);
+            com.hollow.scene.Entity lamp = w.spawn("lamp");
+            room.addChild(lamp);
+            w.destroy(lamp);
+            w.flushDestroy();
+            if(!"lamp!".equals(fired[0])) throw new AssertionError("destroy event " + fired[0]);
+            // subtree removal fires for descendants
+            com.hollow.scene.Entity nest = w.spawn("nest");
+            com.hollow.scene.Entity sub = w.spawn("sub");
+            nest.addChild(sub);
+            final int[] count = { 0 };
+            nest.addListener((c, d) -> count[0]++);
+            nest.removeSubtree(sub);
+            if(count[0] != 1) throw new AssertionError("subtree event " + count[0]);
+            pass("child-removed listeners");
+        } catch(Throwable t){ fail("child-events", t); failures++; }
+        // --- prefab inheritance (OBJ-018) ---
+        try {
+            java.nio.file.Path base = java.nio.file.Path.of("build/selftest-prefabs/prefabs/base.json");
+            java.nio.file.Files.createDirectories(base.getParent());
+            java.nio.file.Files.writeString(base, """
+                { "name": "BaseDoor", "tag": "door", "components": [
+                    { "type": "Light", "intensity": 2.0, "color": [1,1,1] },
+                    { "type": "Sprite", "scale": 1.0 }
+                ] }
+                """);
+            // NOTE: extends resolution requires Scene.currentLoadingFS; bind manually
+            com.hollow.core.FileSystem fs = new com.hollow.core.NativeFS("build/selftest-prefabs");
+            com.hollow.scene.Scene.currentLoadingFS = fs;
+            java.nio.file.Path derived = java.nio.file.Path.of("build/selftest-prefabs/derived.json");
+            java.nio.file.Files.writeString(derived, """
+                { "extends": "base.json", "name": "RedDoor", "components": [
+                    { "type": "Light", "intensity": 5.0 }
+                ] }
+                """);
+            String derivedText = java.nio.file.Files.readString(derived);
+            com.hollow.scene.Prefab p = com.hollow.scene.Prefab.fromJson(derivedText);
+            com.hollow.scene.Scene.currentLoadingFS = null;
+            if(!"RedDoor".equals(p.name)) throw new AssertionError("override name " + p.name);
+            com.hollow.scene.World w = com.hollow.scene.World.empty("prefab-inherit");
+            com.hollow.scene.Entity e = p.instantiate(w, null);
+            if(!"door".equals(e.tag)) throw new AssertionError("inherited tag " + e.tag);
+            com.hollow.scene.LightComponent lc = e.get(com.hollow.scene.LightComponent.class);
+            if(lc == null) throw new AssertionError("no light");
+            if(Math.abs(lc.intensity - 5f) > 1e-4f) throw new AssertionError("override intensity " + lc.intensity);
+            if(!e.has("SpriteComponent")) throw new AssertionError("inherited component dropped");
+            pass("prefab extends chain + component merge");
+        } catch(Throwable t){ fail("prefab-inherit", t); failures++; }
+        // --- prefab tree fragment (OBJ-025) ---
+        try {
+            com.hollow.scene.World w = com.hollow.scene.World.empty("frag");
+            com.hollow.scene.Entity root = w.spawn("car");
+            root.position.set(2, 0, 2);
+            com.hollow.scene.Entity wheel = w.spawn("wheel");
+            wheel.position.set(1, 0, 0);
+            root.addChild(wheel);
+            String frag = com.hollow.scene.Prefab.fromEntityTree(root);
+            // remove originals
+            w.destroy(root);
+            w.flushDestroy();
+            com.hollow.scene.Prefab p = com.hollow.scene.Prefab.fromJson(frag);
+            com.hollow.scene.Entity clone = p.instantiateTree(w, new com.hollow.core.Vec3(10, 0, 10));
+            if(clone == null || clone.children().size() != 1) throw new AssertionError("tree children");
+            if(clone.position.dist(new com.hollow.core.Vec3(10, 0, 10)) > 1e-3f) throw new AssertionError("tree pos " + clone.position);
+            com.hollow.core.Vec3 rel = clone.children().get(0).position;
+            if(Math.abs(rel.x - 1f) > 1e-3f) throw new AssertionError("relative child pos " + rel);
+            pass("prefab fragment tree roundtrip");
+        } catch(Throwable t){ fail("prefab-tree", t); failures++; }
+        // --- PropInfo reflection (OBJ-030) ---
+        try {
+            com.hollow.scene.LightComponent lc = new com.hollow.scene.LightComponent();
+            java.util.List<com.hollow.scene.PropInfo.Prop> props = com.hollow.scene.PropInfo.describe(lc);
+            if(props.isEmpty()) throw new AssertionError("no props on Light");
+            boolean sawIntensity = false;
+            for(com.hollow.scene.PropInfo.Prop pr : props) if(pr.name.equals("intensity")) sawIntensity = true;
+            if(!sawIntensity) throw new AssertionError("intensity not listed");
+            lc.intensity = 1f;
+            if(!com.hollow.scene.PropInfo.set(lc, "intensity", "7.5")) throw new AssertionError("set failed");
+            if(Math.abs(lc.intensity - 7.5f) > 1e-5f) throw new AssertionError("set value " + lc.intensity);
+            if(!"7.5".equals(com.hollow.scene.PropInfo.get(lc, "intensity"))) throw new AssertionError("get " + com.hollow.scene.PropInfo.get(lc, "intensity"));
+            pass("PropInfo reflection (" + props.size() + " props on Light)");
+        } catch(Throwable t){ fail("propinfo", t); failures++; }
+        // --- child components deep lifecycle (OBJ-020) ---
+        try {
+            com.hollow.scene.World w = com.hollow.scene.World.empty("childcomp");
+            com.hollow.scene.Entity e = w.spawn("emitter-host");
+            com.hollow.scene.SpriteComponent host = new com.hollow.scene.SpriteComponent();
+            e.add(host);
+            final int[] updates = { 0 };
+            com.hollow.scene.Component child = new com.hollow.scene.Component(){
+                @Override public void save(com.hollow.core.JsonW out){ out.obj(); out.kv("type", "Probe"); out.endObj(); }
+                @Override public void load(com.hollow.core.JsonV node){ }
+                @Override public void onUpdate(float dt){ updates[0]++; }
+            };
+            host.addChildComponent(child);
+            if(!host.hasChildren()) throw new AssertionError("hasChildren");
+            w.update(0.016f);
+            if(updates[0] != 1) throw new AssertionError("child not updated with parent");
+            pass("child components deep update");
+        } catch(Throwable t){ fail("child-components", t); failures++; }
+        // --- socket API (OBJ-019) ---
+        try {
+            com.hollow.scene.World w = com.hollow.scene.World.empty("sockets");
+            com.hollow.scene.Entity hand = w.spawn("Hand");
+            com.hollow.scene.Entity sword = w.spawn("Sword");
+            sword.attachToBone(hand, "Grip");
+            if(!sword.isBoneAttached()) throw new AssertionError("attached flag");
+            if(!"Grip".equals(sword.attachedBone())) throw new AssertionError("bone name");
+            sword.detachFromBone();
+            if(sword.isBoneAttached()) throw new AssertionError("detach");
+            pass("bone socket attach/detach");
+        } catch(Throwable t){ fail("sockets", t); failures++; }
+        // --- world lock (OBJ-024) ---
+        try {
+            com.hollow.scene.World w = com.hollow.scene.World.empty("lock");
+            String r = w.withRead(() -> "read-ok");
+            String wr = w.withWrite(() -> "write-ok");
+            if(!"read-ok".equals(r) || !"write-ok".equals(wr)) throw new AssertionError("with*Lock");
+            w.readLock();
+            w.readUnlock();
+            pass("World read/write lock helpers");
+        } catch(Throwable t){ fail("scenelock", t); failures++; }
+        // --- MeshStager (MEM-019) ---
+        try {
+            com.hollow.render.MeshStager stager = new com.hollow.render.MeshStager(65536);
+            float[] verts = new float[300];
+            for(int i = 0; i < 300; i++) verts[i] = i * 0.5f;
+            int mark = stager.mark();
+            int addr = stager.stageVertices(verts, 300);
+            java.nio.FloatBuffer fb = stager.vertexBuffer(addr, 300);
+            if(Math.abs(fb.get(299) - 149.5f) > 0.01f) throw new AssertionError("staged float " + fb.get(299));
+            short[] idx = { 0, 1, 2, 3 };
+            int iaddr = stager.stageIndices(idx, 4);
+            stager.rewindTo(mark);
+            if(stager.used() != mark) throw new AssertionError("rewind " + stager.used() + " vs " + mark);
+            pass("MeshStager stage/upload-view/rewind");
+        } catch(Throwable t){ fail("meshstager", t); failures++; }
         System.out.println();
         if(failures > 0){
             System.out.println("RESULT: " + failures + " self test(s) FAILED");
