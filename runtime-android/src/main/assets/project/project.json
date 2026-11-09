@@ -1,0 +1,9 @@
+{
+  "title": "HollowEngine Demo",
+  "appId": "ir.hollow.demo",
+  "version": "1.0.0",
+  "versionCode": 1,
+  "entryScene": "scenes/main.scene.json",
+  "orientation": "sensorLandscape",
+  "quality": "HIGH"
+}

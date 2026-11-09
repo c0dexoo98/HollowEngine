@@ -1,0 +1,7 @@
+// HollowEngine — general-purpose, Unreal-class architecture game engine (pure Java + Android)
+// AGP is on the buildscript classpath for :runtime-android; fast engine/CLI builds use -Phe.skipAndroid
+// (which excludes the android module from settings.gradle).
+buildscript {
+    repositories { google(); mavenCentral() }
+    dependencies { classpath 'com.android.tools.build:gradle:8.4.2' }
+}

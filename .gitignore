@@ -1,0 +1,9 @@
+.gradle/
+build/
+!tools/keys/hollow.jks
+*.apk
+!tools/keys/
+local.properties
+.idea/
+*.iml
+/tmp/

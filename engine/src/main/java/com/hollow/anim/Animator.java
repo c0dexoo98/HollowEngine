@@ -1,0 +1,294 @@
+package com.hollow.anim;
+
+import com.hollow.assets.AnimClip;
+import com.hollow.assets.ModelAsset;
+import com.hollow.assets.Skeleton;
+import com.hollow.core.JsonV;
+import com.hollow.core.JsonW;
+import com.hollow.core.Mat4;
+import com.hollow.core.MathX;
+import com.hollow.core.Quat;
+import com.hollow.core.Vec3;
+import com.hollow.scene.Component;
+
+import java.util.Map;
+
+/** Skeletal animation player (Agent C implementation).
+ *
+ *  - Loads skeleton + clips lazily from svc.assets.model(modelPath) (Skeleton via
+ *    ModelAsset.skins[0], AnimClip via ModelAsset.clips).
+ *  - play(clip) starts at t=0; a crossfade blends the previous clip (fade out) with the
+ *    new clip (fade in): translations lerped, rotations slerped, scales lerped.
+ *  - Per joint: sample TRS -> Mat4.trs local -> walk Skeleton parent hierarchy into world
+ *    space -> multiply inverseBind -> write column-major skinning matrices into
+ *    jointMatrices (16 * jointCount, capped at 64 joints).
+ *  - Models without a skin leave jointMatrices null (static mesh).
+ *  - Non-looping clips stop at the end and fire "anim_end" {clip} on the EventBus
+ *    (null-safe: skipped when no services/event bus are available).
+ */
+public final class Animator extends Component {
+    public String modelPath = "";
+    public String currentClip = "";
+    public boolean loop = true;
+    public float speed = 1f;
+    public float crossfade = 0.25f;
+    public boolean playing = false;
+    /** joint matrices (skin-space) written each update; length 16*jointCount */
+    public float[] jointMatrices = null;
+
+    // --- runtime (not serialized) ---
+    private boolean loaded;
+    private Skeleton skeleton;
+    private Map<String, AnimClip> clips;
+    private int jointCount;
+
+    private float time;
+    private String prevClip = "";
+    private float prevTime;
+    private float fadeT, fadeDur;
+    private boolean endFired;
+    private boolean restWritten;
+
+    private Mat4[] localMats, worldMats;
+    private Mat4[] invBind;
+    private Vec3[] sPos, sScl;
+    private Quat[] sRot;
+    private final Mat4 scratch = new Mat4();
+    private final float[] tr = new float[3], sc = new float[3];
+
+    public void play(String clip){ play(clip, crossfade); }
+
+    /** start clip at t=0, crossfading from the currently playing clip over fade seconds */
+    public void play(String clip, float fade){
+        if(clip == null || clip.isEmpty()) return;
+        if(clip.equals(currentClip) && playing) return;
+        prevClip = currentClip;
+        prevTime = time;
+        fadeDur = Math.max(0f, fade);
+        fadeT = 0f;
+        currentClip = clip;
+        time = 0f;
+        playing = true;
+        endFired = false;
+        restWritten = false;
+    }
+
+    public void stop(){ playing = false; }
+
+    public boolean hasClip(String clip){
+        if(entity == null || modelPath.isEmpty()) return false;
+        return services() != null && services().assets.clip(modelPath, clip) != null;
+    }
+
+    com.hollow.game.EngineServices services(){
+        return com.hollow.game.GameApp.instance != null ? com.hollow.game.GameApp.instance.services() : null;
+    }
+
+    // ------------------------------------------------------------------
+    private void ensureLoaded(){
+        if(loaded) return;
+        loaded = true;
+        com.hollow.game.EngineServices svc = services();
+        if(svc == null || modelPath.isEmpty()) return;
+        ModelAsset m = svc.assets.model(modelPath);
+        if(m == null) return;
+        skeleton = m.skins.isEmpty() ? null : m.skins.get(0);
+        clips = m.clips;
+        if(skeleton != null){
+            jointCount = Math.min(64, skeleton.jointCount());
+            localMats = new Mat4[jointCount];
+            worldMats = new Mat4[jointCount];
+            invBind = new Mat4[jointCount];
+            sPos = new Vec3[jointCount];
+            sScl = new Vec3[jointCount];
+            sRot = new Quat[jointCount];
+            for(int i = 0; i < jointCount; i++){
+                localMats[i] = new Mat4();
+                worldMats[i] = new Mat4();
+                invBind[i] = new Mat4();
+                System.arraycopy(skeleton.joints.get(i).inverseBind, 0, invBind[i].m, 0, 16);
+                sPos[i] = new Vec3();
+                sScl[i] = new Vec3(1,1,1);
+                sRot[i] = new Quat();
+            }
+        }
+    }
+
+    @Override public void onUpdate(float dt){
+        if(entity == null) return;
+        ensureLoaded();
+        if(skeleton == null) return;    // static mesh: jointMatrices stays null
+        if(jointMatrices == null || jointMatrices.length != 16 * jointCount)
+            jointMatrices = new float[16 * jointCount];
+
+        if(!playing){
+            if(!restWritten){ writeRestPose(); restWritten = true; }
+            return;
+        }
+
+        AnimClip clip = currentClip != null ? clips.get(currentClip) : null;
+        if(clip == null) clip = fallbackClip();
+        if(clip == null){ writeRestPose(); restWritten = true; playing = false; return; }
+
+        time += dt * speed;
+        if(clip.duration > 0f){
+            if(loop){
+                time %= clip.duration;
+            } else if(time >= clip.duration){
+                time = clip.duration;
+                if(!endFired){
+                    endFired = true;
+                    playing = false;
+                    fireAnimEnd();
+                }
+            }
+        }
+
+        // crossfade bookkeeping
+        boolean blending = false;
+        AnimClip prev = null;
+        float w = 1f;
+        if(fadeDur > 0f && fadeT < fadeDur && prevClip != null && !prevClip.isEmpty()){
+            prev = clips.get(prevClip);
+            if(prev != null){
+                blending = true;
+                w = MathX.clamp(fadeT / fadeDur, 0f, 1f);
+            }
+        }
+        fadeT += dt;
+        if(prev != null && prev.duration > 0f){
+            prevTime += dt * speed;
+            if(prevTime > prev.duration) prevTime = loop ? prevTime % prev.duration : prev.duration;
+        }
+
+        // sample: defaults to rest pose, channels override
+        for(int i = 0; i < jointCount; i++){
+            Skeleton.Joint j = skeleton.joints.get(i);
+            sPos[i].set(j.restPos);
+            sRot[i].set(j.restRot);
+            sScl[i].set(j.restScale);
+        }
+        sampleClip(clip, time);
+        if(blending) blendClip(prev, prevTime, w);
+
+        // local matrices
+        for(int i = 0; i < jointCount; i++)
+            localMats[i].set(Mat4.trs(sPos[i], sRot[i], sScl[i]));
+
+        // parent multiply (parents usually precede children; fixpoint sweep for any order)
+        computeWorld();
+
+        for(int i = 0; i < jointCount; i++){
+            scratch.set(worldMats[i]).mul(invBind[i]);
+            System.arraycopy(scratch.m, 0, jointMatrices, 16 * i, 16);
+        }
+        if(!blending) prevClip = "";
+    }
+
+    private void sampleClip(AnimClip clip, float t){
+        for(Map.Entry<Integer, AnimClip.Channel> e : clip.channels.entrySet()){
+            int ji = e.getKey();
+            if(ji < 0 || ji >= jointCount) continue;
+            AnimClip.Channel c = e.getValue();
+            if(c.times == null || c.times.length == 0) continue;
+            if(c.translations != null && c.translations.length >= 3){
+                clip.sampleTranslation(c, t, tr);
+                sPos[ji].set(tr[0], tr[1], tr[2]);
+            }
+            if(c.scales != null && c.scales.length >= 3){
+                clip.sampleScale(c, t, sc);
+                sScl[ji].set(sc[0], sc[1], sc[2]);
+            }
+            if(c.rotations != null && c.rotations.length >= 4) clip.sampleRotation(c, t, sRot[ji]);
+        }
+    }
+
+    /** blend prev clip pose INTO current pose by weight w (prev fades out, current fades in) */
+    private void blendClip(AnimClip prev, float t, float w){
+        for(Map.Entry<Integer, AnimClip.Channel> e : prev.channels.entrySet()){
+            int ji = e.getKey();
+            if(ji < 0 || ji >= jointCount) continue;
+            AnimClip.Channel c = e.getValue();
+            if(c.times == null || c.times.length == 0) continue;
+            if(c.translations != null && c.translations.length >= 3){
+                prev.sampleTranslation(c, t, tr);
+                sPos[ji].set(MathX.lerp(tr[0], sPos[ji].x, w), MathX.lerp(tr[1], sPos[ji].y, w), MathX.lerp(tr[2], sPos[ji].z, w));
+            }
+            if(c.scales != null && c.scales.length >= 3){
+                prev.sampleScale(c, t, sc);
+                sScl[ji].set(MathX.lerp(sc[0], sScl[ji].x, w), MathX.lerp(sc[1], sScl[ji].y, w), MathX.lerp(sc[2], sScl[ji].z, w));
+            }
+            if(c.rotations != null && c.rotations.length >= 4){
+                Quat pq = new Quat();
+                prev.sampleRotation(c, t, pq);
+                // result = pq slerped toward current by w (pq fades out)
+                pq.slerp(sRot[ji], w);
+                sRot[ji].set(pq);
+            }
+        }
+    }
+
+    private AnimClip fallbackClip(){
+        if(clips == null || clips.isEmpty()) return null;
+        return clips.values().iterator().next();
+    }
+
+    private void computeWorld(){
+        boolean[] done = new boolean[jointCount];
+        int remaining = jointCount;
+        while(remaining > 0){
+            boolean progress = false;
+            for(int i = 0; i < jointCount; i++){
+                if(done[i]) continue;
+                int p = skeleton.joints.get(i).parent;
+                if(p < 0 || p >= jointCount){
+                    worldMats[i].set(localMats[i]);
+                } else if(done[p]){
+                    worldMats[i].set(worldMats[p]).mul(localMats[i]);
+                } else continue;
+                done[i] = true;
+                progress = true;
+                remaining--;
+            }
+            if(!progress){ // cyclic guard: treat remaining as roots
+                for(int i = 0; i < jointCount; i++)
+                    if(!done[i]) worldMats[i].set(localMats[i]);
+                break;
+            }
+        }
+    }
+
+    private void writeRestPose(){
+        for(int i = 0; i < jointCount; i++){
+            Skeleton.Joint j = skeleton.joints.get(i);
+            localMats[i].set(Mat4.trs(j.restPos, j.restRot, j.restScale));
+        }
+        computeWorld();
+        for(int i = 0; i < jointCount; i++){
+            scratch.set(worldMats[i]).mul(invBind[i]);
+            System.arraycopy(scratch.m, 0, jointMatrices, 16 * i, 16);
+        }
+    }
+
+    private void fireAnimEnd(){
+        com.hollow.game.EngineServices svc = services();
+        if(svc == null || svc.events == null) return;
+        Map<String,Object> data = new java.util.LinkedHashMap<>();
+        data.put("clip", currentClip);
+        svc.events.fire("anim_end", data);
+    }
+
+    @Override public void save(JsonW w){
+        w.obj(); w.kv("type","Animator").kv("model",modelPath).kv("clip",currentClip)
+          .kv("loop",loop).kv("speed",speed).kv("crossfade",crossfade).kv("autoplay",playing); w.endObj();
+    }
+    @Override public void load(JsonV n){
+        modelPath = n.str("model", n.str("modelPath", ""));
+        currentClip = n.str("clip","");
+        loop = n.bool("loop", true);
+        speed = n.flt("speed",1f);
+        crossfade = n.flt("crossfade",0.25f);
+        playing = n.bool("autoplay", n.bool("playing", false));
+        if(playing && !currentClip.isEmpty()) play(currentClip);
+    }
+}

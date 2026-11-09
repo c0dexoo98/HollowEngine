@@ -1,0 +1,127 @@
+{
+  "name": "demo-fps",
+  "environment": {
+    "sky": {
+      "topColor": [0.02, 0.03, 0.08],
+      "horizonColor": [0.12, 0.10, 0.18],
+      "moonPos": [40, 35],
+      "moonColor": [0.9, 0.92, 1.0],
+      "starDensity": 0.8
+    },
+    "ambient": [0.10, 0.11, 0.16],
+    "fog": { "color": [0.04, 0.05, 0.09], "density": 0.025, "heightFalloff": 0.6 },
+    "post": { "grade": { "lift": [0.0, 0.0, 0.02], "gain": [1.0, 0.98, 0.95] } }
+  },
+  "entities": [
+    {
+      "name": "Player", "tag": "player",
+      "position": [0, 0.1, 4],
+      "components": [
+        { "type": "CharacterController", "radius": 0.4, "height": 1.8 },
+        { "type": "BoxCollider", "size": [0.7, 1.8, 0.7], "offset": [0, 0.9, 0] }
+      ]
+    },
+    {
+      "name": "MainCamera", "tag": "camera",
+      "position": [0, 1.62, 4],
+      "components": [ { "type": "Camera", "fov": 65, "active": true } ]
+    },
+    {
+      "name": "Moon", "tag": "light",
+      "position": [10, 20, -8],
+      "components": [
+        { "type": "Light", "kind": "directional", "intensity": 0.55,
+          "color": [0.65, 0.72, 0.95], "castShadow": true }
+      ]
+    },
+    {
+      "name": "Torch1", "position": [-3, 1.6, -2],
+      "components": [
+        { "type": "Light", "kind": "point", "intensity": 2.4, "range": 8,
+          "color": [1.0, 0.62, 0.25], "flicker": 0.35, "flickerSpeed": 9 },
+        { "type": "ParticleEmitter", "sprite": "", "rate": 14, "burst": 8,
+          "lifetime": [0.4, 0.9], "speed": [0.2, 0.6], "spread": 18,
+          "direction": [0, 1, 0], "gravity": [0, 0.8, 0], "drag": 1.2,
+          "size": [0.04, 0.12], "additive": true,
+          "colorCurve": [[0, 1.0, 0.75, 0.3, 1], [0.6, 1.0, 0.35, 0.05, 0.8], [1, 0.4, 0.05, 0, 0]] }
+      ]
+    },
+    {
+      "name": "Torch2", "position": [3, 1.6, -2],
+      "components": [
+        { "type": "Light", "kind": "point", "intensity": 2.2, "range": 8,
+          "color": [1.0, 0.6, 0.22], "flicker": 0.4, "flickerSpeed": 7 },
+        { "type": "ParticleEmitter", "rate": 12, "lifetime": [0.4, 0.8],
+          "speed": [0.2, 0.5], "direction": [0, 1, 0], "gravity": [0, 0.7, 0],
+          "size": [0.04, 0.1], "additive": true }
+      ]
+    },
+    {
+      "name": "Floor", "position": [0, 0, 0],
+      "components": [ { "type": "Mesh", "path": "assets/models/floor.hvm", "castShadow": true } ]
+    },
+    { "name": "WallN", "position": [0, 1.5, -6], "components": [ { "type": "Mesh", "path": "assets/models/wall.hvm", "castShadow": true }, { "type": "BoxCollider", "size": [2, 3, 0.4] } ] },
+    { "name": "WallW", "position": [-6, 1.5, 0], "rotationEuler": [0, 90, 0], "components": [ { "type": "Mesh", "path": "assets/models/wall.hvm", "castShadow": true }, { "type": "BoxCollider", "size": [2, 3, 0.4] } ] },
+    { "name": "WallE", "position": [6, 1.5, 0], "rotationEuler": [0, 90, 0], "components": [ { "type": "Mesh", "path": "assets/models/wall.hvm", "castShadow": true }, { "type": "BoxCollider", "size": [2, 3, 0.4] } ] },
+    { "name": "Pillar1", "position": [-2.5, 1, 1.5], "components": [ { "type": "Mesh", "path": "assets/models/cube.hvm" }, { "type": "BoxCollider", "size": [1, 2, 1] } ] },
+    { "name": "Pillar2", "position": [2.5, 1, 1.5], "components": [ { "type": "Mesh", "path": "assets/models/cube.hvm" }, { "type": "BoxCollider", "size": [1, 2, 1] } ] },
+    {
+      "name": "Gatekeeper", "tag": "enemy",
+      "position": [0, 0.1, -4],
+      "components": [
+        { "type": "Mesh", "path": "assets/models/cube.hvm" },
+        { "type": "BoxCollider", "size": [0.6, 1.7, 0.6], "offset": [0, 0.85, 0] },
+        { "type": "CharacterController", "radius": 0.35, "height": 1.7 },
+        { "type": "Perception", "sightRange": 10, "fov": 120, "targetTag": "player" },
+        { "type": "Agent", "tree": "guard" }
+      ]
+    },
+    {
+      "name": "HealthPickup", "tag": "pickup",
+      "position": [-4, 0.6, 2],
+      "components": [
+        { "type": "Mesh", "path": "assets/models/cube.hvm" },
+        { "type": "SphereCollider", "radius": 0.7, "trigger": true },
+        {
+          "type": "Script",
+          "graphs": [
+            {
+              "on": { "event": "trigger_enter", "zone": "HealthPickup" },
+              "steps": [
+                { "do": "set_var", "name": "health", "value": 100 },
+                { "do": "give_item", "key": "medkit" },
+                { "do": "show_toast", "text": "@i18n:got_medkit" },
+                { "do": "play_sound", "asset": "assets/audio/pickup.wav", "volume": 0.8 },
+                { "do": "destroy", "target": "@self" }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "DoorTrigger", "position": [0, 1, -5],
+      "components": [
+        { "type": "BoxCollider", "size": [3, 2, 1], "trigger": true },
+        {
+          "type": "Script",
+          "graphs": [
+            {
+              "on": { "event": "trigger_enter", "zone": "DoorTrigger" },
+              "steps": [
+                { "do": "if", "cond": "has_item('medkit')",
+                  "then": [
+                    { "do": "log", "text": "door opens" },
+                    { "do": "set_var", "name": "door_open", "value": true },
+                    { "do": "fire", "event": "door_unlocked" }
+                  ],
+                  "else": [ { "do": "show_toast", "text": "@i18n:need_medkit" } ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
