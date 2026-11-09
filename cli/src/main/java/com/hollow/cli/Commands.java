@@ -1370,6 +1370,231 @@ public final class Commands {
             if(stager.used() != mark) throw new AssertionError("rewind " + stager.used() + " vs " + mark);
             pass("MeshStager stage/upload-view/rewind");
         } catch(Throwable t){ fail("meshstager", t); failures++; }
+
+        // ================= v2.2 Batch-2 additions =================
+        // --- PostFX state (PST-009..020) ---
+        try {
+            com.hollow.render.PostFX p = new com.hollow.render.PostFX();
+            p.sanity = 0.7f; p.blood = 0.5f; p.posterize = 0.4f; p.crt = 2f;   // clamp check
+            p.clampAll();
+            if(p.crt > 1.001f) throw new AssertionError("clamp");
+            p.update(0.016f, 180f, 0f);   // fast yaw flick
+            if(p.motionBlur < 0.05f) throw new AssertionError("motionBlur from yaw velocity: " + p.motionBlur);
+            if(Math.abs(p.motionDir[0]) < 0.9f) throw new AssertionError("motion dir x " + p.motionDir[0]);
+            p.update(0.016f, 0f, 0f);
+            if(p.motionBlur >= 0.7f) throw new AssertionError("motionBlur should decay, " + p.motionBlur);
+            p.sanity = 0; p.blood = 0; p.motionBlur = 0; p.crt = 0; p.posterize = 0; p.radialBlur = 0;
+            p.godRays = 0; p.distortion = 0; p.lutBlend = 0; p.shake = 0;
+            if(p.needsFxPass()) throw new AssertionError("needsFxPass should be false at zeros");
+            p.radialBlur = 0.5f;
+            if(!p.needsFxPass()) throw new AssertionError("needsFxPass with radialBlur");
+            com.hollow.render.PostFX loaded = com.hollow.render.PostFX.fromJson(p.toJson());
+            if(Math.abs(loaded.radialBlur - 0.5f) > 1e-5f) throw new AssertionError("json roundtrip");
+            pass("PostFX clamp/velocity/json");
+        } catch(Throwable t){ fail("postfx", t); failures++; }
+        // --- LightProbes (LGT-016) ---
+        try {
+            com.hollow.scene.World w = com.hollow.scene.World.empty("probes");
+            com.hollow.render.LightProbes lp = new com.hollow.render.LightProbes();
+            com.hollow.scene.Entity a = w.spawn("probeA");
+            com.hollow.render.LightProbes.LightProbeComponent pa = new com.hollow.render.LightProbes.LightProbeComponent();
+            pa.radius = 6f; pa.ambient[0] = 1f; pa.ambient[1] = 0.2f; pa.ambient[2] = 0.1f;
+            a.add(pa);
+            com.hollow.scene.Entity b = w.spawn("probeB");
+            b.position.set(20, 0, 0);
+            com.hollow.render.LightProbes.LightProbeComponent pb = new com.hollow.render.LightProbes.LightProbeComponent();
+            pb.radius = 6f; pb.ambient[0] = 0.1f; pb.ambient[1] = 0.2f; pb.ambient[2] = 1f;
+            b.add(pb);
+            lp.rebuild(w);
+            if(lp.count() != 2) throw new AssertionError("count " + lp.count());
+            float[] out = new float[3];
+            if(!lp.resolve(new com.hollow.core.Vec3(0,0,0), out)) throw new AssertionError("resolve at A");
+            if(out[0] < 0.8f || out[2] > 0.3f) throw new AssertionError("red probe color " + java.util.Arrays.toString(out));
+            if(lp.resolve(new com.hollow.core.Vec3(10, 50, 10), out)) throw new AssertionError("outside probes");
+            lp.resolve(new com.hollow.core.Vec3(10, 0, 0), out);   // between
+            if(Math.abs(out[0] - out[2]) > 0.4f) throw new AssertionError("blend mid " + java.util.Arrays.toString(out));
+            pass("LightProbes blend/coverage (" + lp.count() + " probes)");
+        } catch(Throwable t){ fail("lightprobes", t); failures++; }
+        // --- BounceLight (LGT-017) ---
+        try {
+            com.hollow.scene.World w = com.hollow.scene.World.empty("bounce");
+            com.hollow.scene.Entity sun = w.spawn("sun");
+            com.hollow.scene.LightComponent lc = new com.hollow.scene.LightComponent();
+            lc.kind = com.hollow.scene.LightComponent.Kind.DIRECTIONAL;
+            lc.intensity = 2f; lc.color.set(1f, 0.9f, 0.8f, 1f);
+            sun.add(lc);
+            com.hollow.render.BounceLight bl = new com.hollow.render.BounceLight();
+            java.util.List<com.hollow.render.BounceLight.Fill> fills =
+                bl.collect(w, new com.hollow.core.Vec3(), new float[]{0.5f, 0.45f, 0.4f});
+            if(fills.size() != 1) throw new AssertionError("fills " + fills.size());
+            if(fills.get(0).intensity < 0.3f) throw new AssertionError("fill too dim " + fills.get(0).intensity);
+            if(fills.get(0).color[2] >= fills.get(0).color[0]) throw new AssertionError("tint wrong");
+            if(!bl.stats().contains("fills=1")) throw new AssertionError("stats " + bl.stats());
+            pass("BounceLight fill generation");
+        } catch(Throwable t){ fail("bouncelight", t); failures++; }
+        // --- LightningFlash (LGT-020) ---
+        try {
+            com.hollow.vfx.LightningFlash lf = new com.hollow.vfx.LightningFlash();
+            if(lf.ambientBoost() != 0f) throw new AssertionError("idle boost");
+            float thunderDelay = lf.strike(1.5f, 0.9f, 42);
+            if(thunderDelay <= 0f) throw new AssertionError("thunder delay");
+            float peak = 0f;
+            boolean thunderFired = false;
+            for(int i = 0; i < 120; i++) lf.update(1f / 60f);
+            // fresh strike
+            lf.strike(2f, 0.9f, 7);
+            for(int i = 0; i < 90; i++){
+                lf.update(1f / 60f);
+                peak = Math.max(peak, lf.ambientBoost());
+                if(lf.ambientBoost() > 0f && lf.time() > 1.6f && !thunderFired) throw new AssertionError("boost after duration");
+            }
+            if(peak < 1.5f) throw new AssertionError("peak boost " + peak);
+            if(peak > 2.2f) throw new AssertionError("boost over strength " + peak);
+            pass("LightningFlash envelope (peak=" + String.format("%.2f", peak) + ")");
+        } catch(Throwable t){ fail("lightning", t); failures++; }
+        // --- IES profiles (LGT-014) ---
+        try {
+            float none = com.hollow.render.IesProfile.evaluate(0, 30f);
+            if(none != 1f) throw new AssertionError("none profile");
+            float spot0 = com.hollow.render.IesProfile.evaluate(2, 5f);
+            float spot60 = com.hollow.render.IesProfile.evaluate(2, 60f);
+            if(spot0 <= spot60) throw new AssertionError("spot falloff " + spot0 + "/" + spot60);
+            float flood30 = com.hollow.render.IesProfile.evaluate(3, 30f);
+            if(flood30 <= spot60) throw new AssertionError("flood wider than spot");
+            float[] tbl = com.hollow.render.IesProfile.table(1, 40f);
+            if(tbl.length != 12 || tbl[0] < tbl[11]) throw new AssertionError("table " + tbl.length);
+            pass("IES profile curves");
+        } catch(Throwable t){ fail("ies", t); failures++; }
+        // --- MaterialInstance (MAT-019) ---
+        try {
+            com.hollow.assets.MaterialDef base = new com.hollow.assets.MaterialDef();
+            base.roughnessFactor = 0.9f; base.metallicFactor = 0.1f;
+            base.baseColorFactor = new float[]{1, 1, 1, 1};
+            com.hollow.assets.MaterialInstance mi = new com.hollow.assets.MaterialInstance();
+            mi.base = "rust";
+            mi.params.put("roughnessFactor", 0.35);
+            mi.params.put("baseColorFactor", java.util.List.of(0.8, 0.2, 0.1, 1.0));
+            mi.textureOverrides.put("baseColor", "tex/rust.hvt");
+            com.hollow.assets.MaterialDef eff = mi.resolve(k -> base);
+            if(Math.abs(eff.roughnessFactor - 0.35f) > 1e-5f) throw new AssertionError("override roughness " + eff.roughnessFactor);
+            if(Math.abs(eff.metallicFactor - 0.1f) > 1e-5f) throw new AssertionError("inherited metallic " + eff.metallicFactor);
+            if(Math.abs(eff.baseColorFactor[0] - 0.8f) > 1e-5f) throw new AssertionError("override color");
+            if(!"tex/rust.hvt".equals(eff.baseColorTexture)) throw new AssertionError("texture override");
+            pass("MaterialInstance override/inherit");
+        } catch(Throwable t){ fail("matinstance", t); failures++; }
+        // --- MaterialGraph (MAT-020) ---
+        try {
+            String graph = """
+                { "output": {
+                    "baseColor": {"node":"tint"},
+                    "roughness": {"op":"multiply", "a":{"value":0.9}, "b":{"value":0.5}}
+                  },
+                  "nodes": {
+                    "tint": {"op":"multiply",
+                             "a":{"value":[1.0, 0.6, 0.3, 1.0]},
+                             "b":{"op":"saturate", "a":{"value":[0.9, 0.9, 0.9, 1.0]}}}
+                  } }
+                """;
+            com.hollow.assets.MaterialGraph g = com.hollow.assets.MaterialGraph.fromJson(graph);
+            java.util.List<String> errs = g.validate();
+            if(!errs.isEmpty()) throw new AssertionError("validate: " + errs);
+            com.hollow.assets.MaterialDef d = g.bake();
+            if(Math.abs(d.roughnessFactor - 0.45f) > 1e-5f) throw new AssertionError("roughness " + d.roughnessFactor);
+            if(Math.abs(d.baseColorFactor[1] - 0.6f * 0.9f) > 1e-4f) throw new AssertionError("tint " + d.baseColorFactor[1]);
+            // cycle + bad op validation
+            String bad = """
+                { "output": {"roughness": {"node":"a"}},
+                  "nodes": {"a": {"op":"multiply", "a":{"node":"a"}, "b":{"value":1}},
+                            "b": {"op":"frobnicate", "a":{"value":1}, "b":{"value":1}}} }
+                """;
+            com.hollow.assets.MaterialGraph g2 = com.hollow.assets.MaterialGraph.fromJson(bad);
+            if(g2.validate().size() < 2) throw new AssertionError("cycle/bad op not caught");
+            pass("MaterialGraph bake + validate");
+        } catch(Throwable t){ fail("matgraph", t); failures++; }
+        // --- LODSelector (RND-033) ---
+        try {
+            com.hollow.scene.World w = com.hollow.scene.World.empty("lod");
+            com.hollow.scene.Entity e = w.spawn("statue");
+            e.setMeta("lodRadius", 2f);
+            com.hollow.scene.MeshComponent mc = new com.hollow.scene.MeshComponent();
+            mc.path = "models/statue_hi.hvm";
+            // ascending thresholds = MINIMUM screen-metric for that LOD (bigger = closer)
+            mc.lods.add(new com.hollow.scene.MeshComponent.LodEntry("models/statue_lo.hvm", 0f));
+            mc.lods.add(new com.hollow.scene.MeshComponent.LodEntry("models/statue_md.hvm", 0.1f));
+            mc.lods.add(new com.hollow.scene.MeshComponent.LodEntry("models/statue_hi.hvm", 0.5f));
+            e.add(mc);
+            com.hollow.render.LODSelector sel = new com.hollow.render.LODSelector();
+            float near = sel.screenMetric(e, 4f, 0.866f);    // big on screen (fov ~60°)
+            float far = sel.screenMetric(e, 60f, 0.866f);    // tiny
+            if(near <= far) throw new AssertionError("metric order " + near + "/" + far);
+            String mNear = sel.select(e, mc, 4f, 0.866f);
+            String mFar = sel.select(e, mc, 60f, 0.866f);
+            if(!"models/statue_hi.hvm".equals(mNear)) throw new AssertionError("near mesh " + mNear);
+            if(!"models/statue_lo.hvm".equals(mFar)) throw new AssertionError("far mesh " + mFar);
+            pass("LODSelector metric + pick");
+        } catch(Throwable t){ fail("lod", t); failures++; }
+        // --- HiZOcclusion pyramid (RND-034) ---
+        try {
+            com.hollow.render.HiZOcclusion hz = new com.hollow.render.HiZOcclusion();
+            float[] depth = new float[64 * 64];
+            java.util.Arrays.fill(depth, 1f);          // all far (nothing occluding)
+            // near wall (depth 0.5 = nearer) on the left half
+            for(int y = 0; y < 64; y++)
+                for(int x = 0; x < 32; x++) depth[y * 64 + x] = 0.5f;
+            hz.uploadDepth(depth);
+            if(Math.abs(hz.sampleMip(1, 0.1f, 0.5f) - 0.5f) > 1e-5f) throw new AssertionError("mip left");
+            if(Math.abs(hz.sampleMip(1, 0.9f, 0.5f) - 1f) > 1e-5f) throw new AssertionError("mip right");
+            // pyramid: level with max reduction keeps the NEAREST occluder
+            float lv = hz.sampleMip(hz.pyramidLevel(0.5f, 0.5f), 0.1f, 0.5f);
+            if(lv < 0.5f - 1e-5f) throw new AssertionError("conservative max-reduce");
+            pass("Hi-Z pyramid build/sample");
+        } catch(Throwable t){ fail("hiz", t); failures++; }
+        // --- StereoRig (RND-035) ---
+        try {
+            com.hollow.render.StereoRig rig = new com.hollow.render.StereoRig();
+            if(rig.eyeCount() != 1) throw new AssertionError("mono default");
+            rig.enabled = true;
+            rig.ipd = 0.064f;
+            rig.convergence = 2f;
+            rig.configure(90f, 1.0f, 0.05f, 100f);
+            if(rig.eyeCount() != 2) throw new AssertionError("stereo count");
+            com.hollow.render.StereoRig.Eye l = rig.eyes()[0], r = rig.eyes()[1];
+            if(Math.abs(l.offset.x + 0.032f) > 1e-5f) throw new AssertionError("left offset " + l.offset);
+            if(Math.abs(r.offset.x - 0.032f) > 1e-5f) throw new AssertionError("right offset " + r.offset);
+            // projections must differ (asymmetric frusta)
+            boolean diff = false;
+            for(int i = 0; i < 16; i++) if(l.projection.m[i] != r.projection.m[i]) { diff = true; break; }
+            if(!diff) throw new AssertionError("per-eye projections identical");
+            if(Math.abs(l.projection.m[5] - r.projection.m[5]) > 1e-6f) throw new AssertionError("fovY shared");
+            pass("StereoRig eye offsets + asymmetric frusta");
+        } catch(Throwable t){ fail("stereo", t); failures++; }
+        // --- LightComponent v2.2 fields + Mesh LODs serialization ---
+        try {
+            com.hollow.scene.World w = com.hollow.scene.World.empty("light22");
+            com.hollow.scene.Entity e = w.spawn("lamp");
+            com.hollow.scene.LightComponent lc = new com.hollow.scene.LightComponent();
+            lc.kind = com.hollow.scene.LightComponent.Kind.SPOT;
+            lc.cookie = "tex/blinds.hvt";
+            lc.iesProfile = 2;
+            lc.shadowQuality = 3;
+            e.add(lc);
+            com.hollow.core.JsonW jw = new com.hollow.core.JsonW();
+            lc.save(jw);   // component save() emits its own { } object
+            com.hollow.scene.LightComponent lc2 = new com.hollow.scene.LightComponent();
+            lc2.load(new com.hollow.core.JsonV(com.hollow.core.Json.parseObj(jw.toString())));
+            if(!"tex/blinds.hvt".equals(lc2.cookie)) throw new AssertionError("cookie roundtrip " + lc2.cookie);
+            if(lc2.iesProfile != 2 || lc2.shadowQuality != 3) throw new AssertionError("ies/sq roundtrip");
+
+            com.hollow.scene.MeshComponent mc = new com.hollow.scene.MeshComponent();
+            mc.path = "a.hvm";
+            mc.lods.add(new com.hollow.scene.MeshComponent.LodEntry("b.hvm", 0.15f));
+            com.hollow.core.JsonW jw2 = new com.hollow.core.JsonW();
+            mc.save(jw2);   // component save() emits its own { } object
+            com.hollow.scene.MeshComponent mc2 = new com.hollow.scene.MeshComponent();
+            mc2.load(new com.hollow.core.JsonV(com.hollow.core.Json.parseObj(jw2.toString())));
+            if(mc2.lods.size() != 1 || Math.abs(mc2.lods.get(0).d - 0.15f) > 1e-5f) throw new AssertionError("lod roundtrip");
+            pass("Light/Mesh v2.2 serialization");
+        } catch(Throwable t){ fail("light22", t); failures++; }
         System.out.println();
         if(failures > 0){
             System.out.println("RESULT: " + failures + " self test(s) FAILED");

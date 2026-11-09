@@ -27,6 +27,14 @@ public final class EngineServices {
     public InputActions input;
     public GameApp app;                          // back-reference
 
+    // ---- v2.2 rendering support (Batch 2) ----
+    /** light probes need rebuild (LightProbe components added/removed at runtime) */
+    public boolean probesDirty = true;
+    /** event lightning (LGT-020/VFX-013) — renderer samples boosts each frame */
+    public final com.hollow.vfx.LightningFlash lightning = new com.hollow.vfx.LightningFlash();
+    /** screen-space post FX state (renderer + game share it) */
+    public final com.hollow.render.PostFX postfx = new com.hollow.render.PostFX();
+
     /** determinism seed (frame-stable): scripts/ai use DerivableRng(seed + tick) */
     public long frameSeed = 0x9E3779B97F4A7C15L;
 

@@ -98,6 +98,9 @@ public final class EngineBootstrap {
         w.componentRegistry.put("Foliage", com.hollow.render.FoliageComponent::new);
         w.componentRegistry.put("Decal", com.hollow.render.DecalComponent::new);
         w.componentRegistry.put("StreamingVolume", com.hollow.game.StreamingVolume::new);
+        // v2.2 components (Batch 2)
+        w.componentRegistry.put("LightProbe", com.hollow.render.LightProbes.LightProbeComponent::new);
+        w.componentRegistry.put("LightProbeComponent", com.hollow.render.LightProbes.LightProbeComponent::new);
     }
 
     /** after a world loads: physics statics, agent setup, script start events */

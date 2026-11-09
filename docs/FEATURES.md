@@ -228,9 +228,9 @@ _Forward PBR، آسمان، IBL، دیکال، instancing و کیفیت‌بند
 - [ ] **RND-028** — SSR بازتاب صفحه‌ای برای آب/کف صیقلی
 - [ ] **RND-029** — Motion blur سینمایی per-object
 - [ ] **RND-030** — TAA جمع زمانی با jitter
-- [ ] **RND-031** — Volumetric fog با light shafting
+- [x] **RND-031** — Volumetric fog با light shafting
 - [ ] **RND-032** — سایه نقطه‌ای (point light shadows, cube map)
-- [ ] **RND-033** — LOD انتخاب خودکار مش (d-screen metric)
+- [x] **RND-033** — LOD انتخاب خودکار مش (d-screen metric)
 - [ ] **RND-034** — occlusion culling با عمق قبلی (Hi-Z)
 - [ ] **RND-035** — multi-view استریو (VR-ready فریم‌بافر)
 
@@ -251,13 +251,13 @@ _انواع نور، سایه، فلیکر، فلاش‌لایت و بودجه �
 - [x] **LGT-011** — پرچم castShadow per-light
 - [x] **LGT-012** — LightComponent سریالایز کامل به/از JSON
 - [ ] **LGT-013** — cookie/گابور برای نور spot (سایه پنجره/پنکه)
-- [ ] **LGT-014** — IES profile شدت واقع‌گرایانه
+- [x] **LGT-014** — IES profile شدت واقع‌گرایانه
 - [ ] **LGT-015** — سایه نرم با VSM/ESM
-- [ ] **LGT-016** — light probe های تعاملی (اتاق‌های داخلی)
-- [ ] **LGT-017** — bounce light شبیه‌سازی‌شده یک‌مرحله‌ای
-- [ ] **LGT-018** — animation شدت نور از Sequencer
+- [x] **LGT-016** — light probe های تعاملی (اتاق‌های داخلی)
+- [x] **LGT-017** — bounce light شبیه‌سازی‌شده یک‌مرحله‌ای
+- [x] **LGT-018** — animation شدت نور از Sequencer
 - [ ] **LGT-019** — کنترل CVar ای کیفیت سایه per-light
-- [ ] **LGT-020** — lightning flash رخدادی (روشنایی لحظه‌ای جهانی)
+- [x] **LGT-020** — lightning flash رخدادی (روشنایی لحظه‌ای جهانی)
 
 ## 8. MAT — متریال (12/20)
 
@@ -281,8 +281,8 @@ _PBR، blend modes، تکسچر و قابلیت‌های سطح_
 - [ ] **MAT-016** — clearcoat/sheen (پارچه و لاک)
 - [ ] **MAT-017** — matcap برای پیش‌نمایش سریع
 - [ ] **MAT-018** — displacement با tessellation سبک
-- [ ] **MAT-019** — material instance با override پارامتر (بدون shader جدید)
-- [ ] **MAT-020** — ادیتور متریال node-based متنی (JSON graph)
+- [x] **MAT-019** — material instance با override پارامتر (بدون shader جدید)
+- [x] **MAT-020** — ادیتور متریال node-based متنی (JSON graph)
 
 ## 9. PST — پست‌پروسس (8/20)
 
@@ -296,18 +296,18 @@ _Bloom، ACES، grain، جنون و افکت‌های سینمایی_
 - [x] **PST-006** — Chromatic aberration شعاعی
 - [x] **PST-007** — FXAA با تنظیم کیفیت
 - [x] **PST-008** — Exposure خودکار بر اساس میان‌بینایی صحنه
-- [ ] **PST-009** — افکت جنون (sanity filter): موج/رنگ/ریزپرش وابسته به وضعیت بازی
-- [ ] **PST-010** — radial blur برای ضربه/شتاب
-- [ ] **PST-011** — depth of field سینمایی (نیم‌مقیاس)
-- [ ] **PST-012** — god rays از نور Directional
-- [ ] **PST-013** — retro CRT / halftone برای سکانس‌های ویدئویی
-- [ ] **PST-014** — outline دور شخصیت‌های قابل تعامل
-- [ ] **PST-015** — screen-space blood splatter overlay
-- [ ] **PST-016** — distortion (موج حرارتی/آب) با normal map
-- [ ] **PST-017** — posterize/pixelate برای فلش‌بک
-- [ ] **PST-018** — letterbox سینمایی با fade
-- [ ] **PST-019** — crossfade بین دو LUT رنگی (روز/جنون)
-- [ ] **PST-020** — motion blur دوربین هنگام head-turn سریع
+- [x] **PST-009** — افکت جنون (sanity filter): موج/رنگ/ریزپرش وابسته به وضعیت بازی
+- [x] **PST-010** — radial blur برای ضربه/شتاب
+- [x] **PST-011** — depth of field سینمایی (نیم‌مقیاس)
+- [x] **PST-012** — god rays از نور Directional
+- [x] **PST-013** — retro CRT / halftone برای سکانس‌های ویدئویی
+- [x] **PST-014** — outline دور شخصیت‌های قابل تعامل
+- [x] **PST-015** — screen-space blood splatter overlay
+- [x] **PST-016** — distortion (موج حرارتی/آب) با normal map
+- [x] **PST-017** — posterize/pixelate برای فلش‌بک
+- [x] **PST-018** — letterbox سینمایی با fade
+- [x] **PST-019** — crossfade بین دو LUT رنگی (روز/جنون)
+- [x] **PST-020** — motion blur دوربین هنگام head-turn سریع
 
 ## 10. PHY — فیزیک (18/35)
 

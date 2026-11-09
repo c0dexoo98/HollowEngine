@@ -669,6 +669,213 @@ public final class Shaders {
     }
     """;
 
+    // ================= v2.2: screen-space FX pass (PST-009..020, RND-031) =================
+    // One configurable pass: sanity wave/jitter, radial blur, DOF, god rays, CRT,
+    // depth-edge outline, blood overlay, heat distortion, posterize/pixelate,
+    // LUT crossfade, camera motion blur, screen-shake. Runs BEFORE bloom+composite.
+    public static final String FX_FS = """
+    #version 300 es
+    precision highp float;
+    precision highp int;
+    in vec2 vUV;
+    layout(location=0) out vec4 fragColor;
+    uniform sampler2D uScene;
+    uniform sampler2D uDepth;       // scene depth (reversed-Z not required; standard 0..1, 1=far... engine convention)
+    uniform vec2  uTexel;
+    uniform float uTime;
+
+    // effect amounts (0 = off)
+    uniform float uSanity;          // PST-009
+    uniform float uRadial;          // PST-010
+    uniform vec2  uRadialCenter;
+    uniform float uDof;             // PST-011 amount 0..1 (0 = off)
+    uniform float uDofFocus;        // world units (0..1 depth after linearize)
+    uniform float uDofRange;
+    uniform float uShaft;           // PST-012 / RND-031
+    uniform vec2  uSunUV;           // sun screen position
+    uniform float uCrt;             // PST-013
+    uniform float uOutline;         // PST-014 strength (0 = off)
+    uniform vec3  uOutlineColor;
+    uniform float uBlood;           // PST-015
+    uniform float uDistort;         // PST-016
+    uniform float uDistortScale;
+    uniform float uDistortSpeed;
+    uniform float uPosterize;       // PST-017
+    uniform int   uPosterizeLevels;
+    uniform float uLutBlend;        // PST-019
+    uniform vec3  uLutA;
+    uniform vec3  uLutB;
+    uniform float uMotion;          // PST-020
+    uniform vec2  uMotionDir;
+    uniform float uShake;           // screen shake uv jitter
+    uniform int   uTaps;            // blur tap budget
+
+    float hash12(vec2 p){
+        vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+        p3 += dot(p3, p3.yzx + 33.33);
+        return fract((p3.x + p3.y) * p3.z);
+    }
+
+    float depthAt(vec2 uv){ return texture(uDepth, uv).r; }
+
+    void main(){
+        vec2 uv = vUV;
+
+        // ---- screen shake (uv jitter, decays per-frame on CPU) ----
+        if(uShake > 0.001){
+            vec2 j = vec2(hash12(vec2(uTime * 61.0, gl_FragCoord.y)) - 0.5,
+                          hash12(vec2(gl_FragCoord.x, uTime * 47.0)) - 0.5);
+            uv += j * uShake * 0.02;
+        }
+
+        // ---- PST-016 heat/water distortion (procedural normal waves) ----
+        if(uDistort > 0.001){
+            vec2 w = vec2(
+                sin(uv.y * uDistortScale + uTime * uDistortSpeed) + sin(uv.y * uDistortScale * 2.7 - uTime * uDistortSpeed * 1.4) * 0.5,
+                cos(uv.x * uDistortScale * 1.3 + uTime * uDistortSpeed * 0.8));
+            uv += w * uDistort * 0.012;
+        }
+
+        vec3 c = texture(uScene, uv).rgb;
+
+        // ---- PST-011 depth of field (coarse circle-of-confusion, depth-band) ----
+        if(uDof > 0.001){
+            float d = depthAt(uv);
+            float coc = clamp(abs(d - uDofFocus) / max(uDofRange, 1e-4), 0.0, 1.0) * uDof;
+            if(coc > 0.01){
+                vec3 acc = c;
+                float total = 1.0;
+                for(int i = 1; i <= 8; i++){
+                    float fi = float(i);
+                    vec2 ring = uTexel * coc * fi * 2.2;
+                    acc += texture(uScene, uv + ring * vec2( 0.866,  0.5)).rgb;  total += 1.0;
+                    acc += texture(uScene, uv + ring * vec2(-0.866,  0.5)).rgb;  total += 1.0;
+                    acc += texture(uScene, uv + ring * vec2( 0.0,   -1.0)).rgb;  total += 1.0;
+                    if(fi * 3.0 >= float(uTaps)) break;
+                }
+                c = acc / total;
+            }
+        }
+
+        // ---- PST-010 radial blur (impact/speed) ----
+        if(uRadial > 0.001){
+            vec2 dir = uv - uRadialCenter;
+            vec3 acc = c;
+            float total = 1.0;
+            for(int i = 1; i <= 6; i++){
+                float s = 1.0 - uRadial * 0.08 * float(i);
+                acc += texture(uScene, uRadialCenter + dir * s).rgb;
+                total += 1.0;
+            }
+            c = mix(c, acc / total, clamp(uRadial * 1.6, 0.0, 1.0));
+        }
+
+        // ---- PST-020 camera motion blur (directional, screen-space) ----
+        if(uMotion > 0.001){
+            vec2 mdir = uMotionDir * uTexel * 7.0 * uMotion;
+            vec3 acc = c * 0.5;
+            acc += texture(uScene, uv - mdir).rgb * 0.25;
+            acc += texture(uScene, uv + mdir).rgb * 0.25;
+            c = acc;
+        }
+
+        // ---- PST-012 / RND-031 god rays / light shafts (screen-space radial march) ----
+        if(uShaft > 0.001 && uSunUV.x > -0.5){
+            vec2 toSun = uSunUV - uv;
+            vec3 acc = vec3(0.0);
+            float total = 0.0;
+            float decay = 1.0;
+            for(int i = 0; i < 12; i++){
+                float s = float(i) / 11.0;
+                vec2 su = uv + toSun * s * 0.55;
+                float d = depthAt(su);
+                // shafts only travel through "sky" (far depth)
+                float w = step(0.995, d) * decay;
+                acc += texture(uScene, su).rgb * w;
+                total += max(w, 0.0) + (1.0 - step(0.995, d)) * 0.35;
+                decay *= 0.88;
+            }
+            vec3 shaft = acc / max(total, 1e-3) * (total / 12.0);
+            float sunFall = 1.0 - clamp(length(toSun) * 1.2, 0.0, 1.0);
+            c += shaft * uShaft * sunFall * 2.2;
+        }
+
+        // ---- PST-009 sanity filter: wave warp + hue wobble + micro-jitter ----
+        if(uSanity > 0.001){
+            float t = uTime;
+            // chromatic breathing
+            vec2 dir = uv - 0.5;
+            float w = sin(t * 2.1 + length(dir) * 9.0) * 0.5 + 0.5;
+            vec2 off = dir * w * uSanity * 0.014;
+            c.r = texture(uScene, uv + off).r;
+            c.b = texture(uScene, uv - off).b;
+            // hue wobble toward violet
+            float wob = sin(t * 1.3) * 0.5 + 0.5;
+            c = mix(c, c.gbr * vec3(1.05, 0.95, 1.15), uSanity * 0.25 * wob);
+            // frame micro-jitter
+            if(hash12(vec2(floor(t * 24.0), 3.0)) > 1.0 - uSanity * 0.25){
+                c *= 0.85 + 0.3 * hash12(gl_FragCoord.xy + t);
+            }
+        }
+
+        // ---- PST-014 depth-edge outline (interactable highlight) ----
+        if(uOutline > 0.001){
+            float dL = depthAt(uv - vec2(uTexel.x, 0.0));
+            float dR = depthAt(uv + vec2(uTexel.x, 0.0));
+            float dU = depthAt(uv - vec2(0.0, uTexel.y));
+            float dD = depthAt(uv + vec2(0.0, uTexel.y));
+            float edge = abs(dR - dL) + abs(dD - dU);
+            float k = smoothstep(uOutline * 0.4, uOutline * 2.0, edge);
+            c = mix(c, uOutlineColor, k * 0.85);
+        }
+
+        // ---- PST-013 retro CRT / halftone ----
+        if(uCrt > 0.001){
+            // scanlines
+            float scan = 0.88 + 0.12 * sin(gl_FragCoord.y * 3.14159);
+            c *= mix(1.0, scan, uCrt);
+            // aperture grille
+            float g = mod(gl_FragCoord.x, 3.0);
+            vec3 mask = vec3(g < 1.0 ? 1.0 : 0.85, (g >= 1.0 && g < 2.0) ? 1.0 : 0.85, g >= 2.0 ? 1.0 : 0.85);
+            c *= mix(vec3(1.0), mask, uCrt * 0.8);
+            // barrel-ish vignette
+            vec2 d2 = (uv - 0.5) * 2.0;
+            c *= 1.0 - uCrt * 0.25 * dot(d2, d2) * 0.35;
+        }
+
+        // ---- PST-017 posterize / pixelate ----
+        if(uPosterize > 0.001){
+            vec3 quant = floor(c * float(uPosterizeLevels) + 0.5) / float(uPosterizeLevels);
+            c = mix(c, quant, uPosterize);
+        }
+
+        // ---- PST-019 LUT crossfade (day grade -> madness grade) ----
+        if(uLutBlend > 0.001){
+            vec3 graded = c * mix(uLutA, uLutB, uLutBlend);
+            graded.b += uLutBlend * 0.05;                 // cold push
+            c = mix(c, clamp(graded, 0.0, 1.0), 0.9);
+        }
+
+        // ---- PST-015 blood splatter overlay (procedural blobs, no texture dep) ----
+        if(uBlood > 0.001){
+            vec2 bp = (uv - 0.5) * vec2(1.77, 1.0) + 0.5; // aspect-correct
+            float blobs = 0.0;
+            for(int i = 0; i < 5; i++){
+                float fi = float(i);
+                vec2 c0 = vec2(0.15 + 0.7 * hash12(vec2(fi * 7.3, uBloodSeed)),
+                               0.15 + 0.7 * hash12(vec2(uBloodSeed * 3.1, fi * 5.7)));
+                float r = (0.06 + 0.12 * hash12(vec2(fi, uBloodSeed * 1.7)));
+                blobs += smoothstep(r, r * 0.35, length(bp - c0));
+            }
+            blobs = clamp(blobs, 0.0, 1.0);
+            vec3 bloodCol = vec3(0.32, 0.02, 0.02);
+            c = mix(c, bloodCol, blobs * uBlood * 0.85);
+        }
+
+        fragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
+    }
+    """;
+
     // ================= v2.0: instanced foliage =================
     public static final String FOLIAGE_VS = """
     #version 300 es

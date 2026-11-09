@@ -37,6 +37,7 @@ public final class Sequencer {
     private float musicVolume = 1f;
     private final ArrayList<FadeTrk> fadeTracks = new ArrayList<>();
     private final ArrayList<Cap> captionTracks = new ArrayList<>();
+    private final ArrayList<LtTrk> lightTracks = new ArrayList<>();   // LGT-018
 
     // ---- runtime ----
     private float t = 0;
@@ -60,6 +61,11 @@ public final class Sequencer {
     private static final class Snd { float t; String asset; float volume; boolean fired; }
     private static final class FadeTrk { float t; float duration; boolean fadeIn; }
     private static final class Cap { float t; float duration; String text; boolean fired; }
+    /** v2.2 LGT-018: animated light intensity/ color keys */
+    private static final class LtKey { float t; Float intensity; Vec3 color; }
+    private static final class LtTrk {
+        String target; final ArrayList<LtKey> keys = new ArrayList<>();
+    }
 
     // ---------------- load ----------------
 
@@ -67,6 +73,7 @@ public final class Sequencer {
         playing = false;
         camKeys.clear(); transformTracks.clear(); animTracks.clear();
         eventTracks.clear(); soundTracks.clear(); fadeTracks.clear(); captionTracks.clear();
+        lightTracks.clear();
         musicAsset = null; musicVolume = 1f;
         duration = 0; letterboxEnabled = true; camEntityName = "CineCam";
         if(fs == null || path == null){ Log.w("Cine", "load: missing fs/path"); return; }
@@ -148,6 +155,22 @@ public final class Sequencer {
                         f.duration = Math.max(1e-3f, (float) Json.num(tr.get("duration"), 0.5f));
                         f.fadeIn = Json.bool(tr.get("fadeIn"), false);
                         fadeTracks.add(f);
+                        break;
+                    }
+                    case "light": {                       // LGT-018
+                        LtTrk lt = new LtTrk();
+                        lt.target = Json.str(tr.get("target"), "");
+                        List<Object> keys = Json.arr(tr.get("keys"));
+                        if(keys != null) for(Object k : keys){
+                            Map<String, Object> kn = Json.obj(k);
+                            if(kn == null) continue;
+                            LtKey lk = new LtKey();
+                            lk.t = (float) Json.num(kn.get("t"), 0);
+                            if(kn.containsKey("intensity")) lk.intensity = (float) Json.num(kn.get("intensity"), 1);
+                            lk.color = Json.vec3(kn.get("color"), null);
+                            lt.keys.add(lk);
+                        }
+                        lightTracks.add(lt);
                         break;
                     }
                     case "caption": {
@@ -238,6 +261,8 @@ public final class Sequencer {
         if(cineCam != null && !camKeys.isEmpty()) applyCamera();
         // transform tracks
         for(Trk trk : transformTracks) applyTransform(trk);
+        // light tracks (LGT-018)
+        for(LtTrk lt : lightTracks) applyLight(lt);
         // events (fire once, in track order)
         for(Ev e : eventTracks){
             if(!e.fired && t >= e.t){
@@ -324,6 +349,25 @@ public final class Sequencer {
         if(a.scl != null && b.scl != null)
             e.scale.set(MathX.lerp(a.scl.x, b.scl.x, f), MathX.lerp(a.scl.y, b.scl.y, f), MathX.lerp(a.scl.z, b.scl.z, f));
         e.markDirtyDeep();
+    }
+
+    /** v2.2 LGT-018: light intensity/color keyframes */
+    private void applyLight(LtTrk lt){
+        Entity e = world != null ? world.find(lt.target) : null;
+        if(e == null || lt.keys.isEmpty()) return;
+        com.hollow.scene.LightComponent lc = e.get(com.hollow.scene.LightComponent.class);
+        if(lc == null) return;
+        int hi = 0;
+        while(hi < lt.keys.size() && lt.keys.get(hi).t < t) hi++;
+        LtKey a, b;
+        if(hi <= 0){ a = b = lt.keys.get(0); }
+        else if(hi >= lt.keys.size()){ a = b = lt.keys.get(lt.keys.size() - 1); }
+        else { a = lt.keys.get(hi - 1); b = lt.keys.get(hi); }
+        float f = a == b ? 0 : MathX.clamp((t - a.t) / Math.max(1e-5f, b.t - a.t), 0, 1);
+        if(a.intensity != null && b.intensity != null)
+            lc.intensity = MathX.lerp(a.intensity, b.intensity, f);
+        if(a.color != null && b.color != null)
+            lc.color.set(MathX.lerp(a.color.x, b.color.x, f), MathX.lerp(a.color.y, b.color.y, f), MathX.lerp(a.color.z, b.color.z, f), 1f);
     }
 
     private static com.hollow.game.EngineServices services(){

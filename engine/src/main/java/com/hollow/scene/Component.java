@@ -55,7 +55,7 @@ public abstract class Component {
         if(children == null || children.isEmpty()) return;
         w.arr("children");
         for(Component c : children){
-            w.obj(); c.save(w); w.endObj();
+            c.save(w);   // child save() emits its own { } object
         }
         w.endArr();
     }

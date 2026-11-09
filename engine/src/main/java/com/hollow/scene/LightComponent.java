@@ -21,6 +21,14 @@ public final class LightComponent extends Component {
     public float flickerSpeed = 8f;
     public int flickerSeed = 1;
 
+    // ---- v2.2 LGT-013/014/019 ----
+    /** spot cookie/gobo texture path (LGT-013): shadows the cone (window blinds, fan blades) */
+    public String cookie = null;
+    /** IES-style falloff profile (LGT-014): 0=none 1=bulb 2=spot 3=flood 4=larson */
+    public int iesProfile = 0;
+    /** per-light shadow quality (LGT-019): 0=off 1=low 2=medium 3=high (map resolution) */
+    public int shadowQuality = 2;
+
     float flickerValue = 1f;
     float time = 0;
 
@@ -40,6 +48,9 @@ public final class LightComponent extends Component {
         w.kv("type","Light").kv("kind", kind.name().toLowerCase()).kvv("color", color.r, color.g, color.b);
         w.kv("intensity", intensity).kv("range", range).kv("innerAngle", innerAngle).kv("outerAngle", outerAngle);
         w.kv("castShadow", castShadow).kv("flicker", flickerAmplitude).kv("flickerSpeed", flickerSpeed);
+        if(cookie != null) w.kv("cookie", cookie);
+        if(iesProfile != 0) w.kv("ies", iesProfile);
+        if(shadowQuality != 2) w.kv("shadowQuality", shadowQuality);
         w.endObj();
     }
     @Override public void load(JsonV n){
@@ -55,5 +66,8 @@ public final class LightComponent extends Component {
         flickerAmplitude = n.flt("flicker", 0f);
         flickerSpeed = n.flt("flickerSpeed", 8f);
         flickerSeed = n.int32("seed", entity != null ? entity.id : 1);
+        cookie = n.str("cookie", null);
+        iesProfile = n.int32("ies", 0);
+        shadowQuality = n.int32("shadowQuality", 2);
     }
 }

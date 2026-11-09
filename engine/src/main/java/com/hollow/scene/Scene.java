@@ -124,7 +124,7 @@ public final class Scene {
                 if(!fc) b.append(',');
                 fc = false;
                 com.hollow.core.JsonW cw = new com.hollow.core.JsonW();
-                cw.obj(); c.save(cw); cw.endObj();
+                c.save(cw);   // component save() emits its own { } object
                 b.append(cw);
             }
             b.append(']');

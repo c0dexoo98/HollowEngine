@@ -172,7 +172,7 @@ public final class Prefab {
         List<Object> comps = new ArrayList<>();
         for(Component c : e.allComponents()){
             com.hollow.core.JsonW cw = new com.hollow.core.JsonW();
-            cw.obj(); c.save(cw); cw.endObj();
+            c.save(cw);   // component save() emits its own { } object
             Map<String, Object> cm = Json.parseObj(cw.toString());
             if(cm != null) comps.add(cm);
         }
@@ -229,7 +229,7 @@ public final class Prefab {
         List<Object> comps = new ArrayList<>();
         for(Component c : e.allComponents()){
             com.hollow.core.JsonW cw = new com.hollow.core.JsonW();
-            cw.obj(); c.save(cw); cw.endObj();
+            c.save(cw);   // component save() emits its own { } object
             Map<String, Object> cm = Json.parseObj(cw.toString());
             if(cm != null) comps.add(cm);
         }

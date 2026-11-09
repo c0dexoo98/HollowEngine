@@ -42,7 +42,7 @@ public final class EntitySnapshot {
         List<Object> comps = new ArrayList<>();
         for(Component c : e.allComponents()){
             JsonW w = new JsonW();
-            w.obj(); c.save(w); w.endObj();
+            c.save(w);   // component save() emits its own { } object
             Map<String, Object> cm = Json.parseObj(w.toString());
             if(cm != null) comps.add(cm);
         }

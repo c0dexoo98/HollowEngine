@@ -77,6 +77,19 @@ public final class PbrRenderer {
     // v2.0
     private GlObjects.Shader ssaoShader, decalShader;
     private GlObjects.Fbo ssaoFbo, decalFboA, decalFboB;
+    // v2.2 (Batch 2)
+    private GlObjects.Shader fxShader;
+    private GlObjects.Fbo fxFboA;
+    private final PostFX postfx = PostFX.global();          // shared with the game via svc
+    private final LightProbes lightProbes = new LightProbes();
+    private final BounceLight bounce = new BounceLight();
+    public final LODSelector lod = new LODSelector();
+    public final HiZOcclusion hiZ = new HiZOcclusion();
+    public final StereoRig stereo = new StereoRig();
+    private final float[] probeAmbient = new float[3];
+    private float prevYaw = 0f, prevPitch = 0f;
+    private boolean camVelInit = false;
+    private EngineServices frameSvc = null;
     private final FoliageSystem foliage = new FoliageSystem();
     private World foliageWorld;
     private IBLData ibl;
@@ -227,6 +240,12 @@ public final class PbrRenderer {
             ssaoShader  = new GlObjects.Shader("ssao", Shaders.SSAO_VS, Shaders.SSAO_FS);
             decalShader = new GlObjects.Shader("decal", Shaders.DECAL_VS, Shaders.DECAL_FS);
         } catch(Throwable t){ Log.w(TAG, "v2.0 shader init failed: " + t.getMessage()); }
+        // v2.2 screen-space FX pass (PST-009..020)
+        try {
+            fxShader = new GlObjects.Shader("fx", Shaders.POST_VS, Shaders.FX_FS);
+        } catch(Throwable t){ Log.w(TAG, "fx shader init failed: " + t.getMessage()); }
+        if(fxShader != null && fxShader.ok())
+            fxFboA = GlObjects.Fbo.create(renderW, renderH);
 
         boolean depthTexNeeded = cfg.ssao || cfg.decals;
         sceneFbo  = depthTexNeeded ? GlObjects.Fbo.createColorDepthTex(renderW, renderH)
@@ -296,6 +315,7 @@ public final class PbrRenderer {
         if(ssaoFbo != null) ssaoFbo.resize(Math.max(1, renderW / 2), Math.max(1, renderH / 2));
         if(decalFboA != null) decalFboA.resize(renderW, renderH);
         if(decalFboB != null) decalFboB.resize(renderW, renderH);
+        if(fxFboA != null) fxFboA.resize(renderW, renderH);
         computeUiOrtho();
     }
 
@@ -315,9 +335,11 @@ public final class PbrRenderer {
         if (compositeShader != null) compositeShader.dispose();
         if (ssaoShader != null) ssaoShader.dispose();
         if (decalShader != null) decalShader.dispose();
+        if (fxShader != null) fxShader.dispose();
         depthShader = pbrShader = waterShader = skyShader = spriteShader = null;
         particleShader = flatShader = uiShader = brightShader = blurShader = compositeShader = null;
         ssaoShader = decalShader = null;
+        fxShader = null;
 
         if (sceneFbo != null) sceneFbo.dispose();
         if (shadowFbo != null) shadowFbo.dispose();
@@ -326,8 +348,10 @@ public final class PbrRenderer {
         if (ssaoFbo != null) ssaoFbo.dispose();
         if (decalFboA != null) decalFboA.dispose();
         if (decalFboB != null) decalFboB.dispose();
+        if (fxFboA != null) fxFboA.dispose();
         sceneFbo = shadowFbo = brightFbo = blurFbo = null;
         ssaoFbo = decalFboA = decalFboB = null;
+        fxFboA = null;
         disposeIbl();
         foliage.clear();
         foliageWorld = null;
@@ -395,6 +419,35 @@ public final class PbrRenderer {
         stats.fpsEstimate = fpsEma;
 
         parseEnvironment(world.environment);
+        frameSvc = svc;
+
+        // ---- v2.2: event lightning ambient boost (LGT-020) ----
+        svc.lightning.update(svc.time.deltaTime);
+        float lboost = svc.lightning.ambientBoost();
+        if(lboost > 0.001f){
+            env.ambient[0] *= 1f + lboost;
+            env.ambient[1] *= 1f + lboost;
+            env.ambient[2] *= 1f + lboost * 1.08f;      // lightning is slightly cold
+        }
+
+        // ---- v2.2: camera angular velocity -> PST-020 motion blur ----
+        float yawNow = (float)Math.toDegrees(Math.atan2(-cam.forward.x, -cam.forward.z));
+        float pitchNow = (float)Math.toDegrees(Math.asin(Math.max(-1f, Math.min(1f, cam.forward.y))));
+        if(camVelInit && svc.time.deltaTime > 0.0001f){
+            float yawVel = com.hollow.core.MathX.deltaAngle(prevYaw, yawNow) / svc.time.deltaTime;
+            float pitchVel = (pitchNow - prevPitch) / svc.time.deltaTime;
+            postfx.update(svc.time.deltaTime, yawVel, pitchVel);
+        }
+        prevYaw = yawNow; prevPitch = pitchNow; camVelInit = true;
+
+        // ---- v2.2: light probes ambient blend (LGT-016) ----
+        if(svc.probesDirty){ lightProbes.rebuild(world); svc.probesDirty = false; }
+        if(lightProbes.count() > 0 && lightProbes.resolve(cam.eye, probeAmbient)){
+            env.ambient[0] = env.ambient[0] * 0.35f + probeAmbient[0] * 0.65f;
+            env.ambient[1] = env.ambient[1] * 0.35f + probeAmbient[1] * 0.65f;
+            env.ambient[2] = env.ambient[2] * 0.35f + probeAmbient[2] * 0.65f;
+        }
+
         gatherLights(world, cam, svc);
         collectItems(world, cam);
         // v2.0: IBL bake, foliage collect, decals gather
@@ -539,6 +592,8 @@ public final class PbrRenderer {
             Vec3 f = sun.entity.rotation.forward();
             sunDirScene.set(f).norm();                    // sun -> scene
             float k = sun.effectiveIntensity();
+            // v2.2 LGT-020: lightning flash boosts the directional light too
+            if(svc != null) k *= 1f + svc.lightning.directionalBoost();
             sunColor[0] = sun.color.r * k;
             sunColor[1] = sun.color.g * k;
             sunColor[2] = sun.color.b * k;
@@ -556,6 +611,21 @@ public final class PbrRenderer {
             r.innerCos = (float) Math.cos(Math.toRadians(30));
             r.outerCos = (float) Math.cos(Math.toRadians(45));
         }
+
+        // ---- v2.2: one-bounce fill lights (LGT-017) ----
+        java.util.List<BounceLight.Fill> fills = bounce.collect(world, cam.eye, env.ambient);
+        for(BounceLight.Fill f : fills){
+            if(lightCount >= MAX_LIGHTS) break;
+            LightRec r = obtainLight();
+            r.kind = 0;
+            r.pos.set(cam.eye).addScaled(f.direction, 2.5f);
+            r.dir.set(0, 1, 0);
+            r.color[0] = f.color[0] * f.intensity;
+            r.color[1] = f.color[1] * f.intensity;
+            r.color[2] = f.color[2] * f.intensity;
+            r.range = 14f;
+            r.innerCos = 0.9f; r.outerCos = 0.76f;
+        }
     }
 
     private void addLight(Entity e, LightComponent lc){
@@ -565,11 +635,13 @@ public final class PbrRenderer {
         r.pos.set(e.worldMatrix.translation());
         r.dir.set(e.rotation.forward()).norm();
         float k = lc.effectiveIntensity();
+        float inner = Math.max(0.02f, lc.innerAngle), outer = Math.max(inner, lc.outerAngle);
+        // v2.2 LGT-014: IES-style fixture falloff (CPU approximation at mid-cone angle)
+        if(lc.iesProfile != 0) k *= IesProfile.evaluate(lc.iesProfile, (inner + outer) * 0.5f);
         r.color[0] = lc.color.r * k;
         r.color[1] = lc.color.g * k;
         r.color[2] = lc.color.b * k;
         r.range = Math.max(0.05f, lc.range);
-        float inner = Math.max(0.02f, lc.innerAngle), outer = Math.max(inner, lc.outerAngle);
         r.innerCos = (float) Math.cos(Math.toRadians(inner));
         r.outerCos = (float) Math.cos(Math.toRadians(outer));
     }
@@ -666,9 +738,18 @@ public final class PbrRenderer {
     }
 
     private void collectMesh(Entity e, MeshComponent mc, CameraData cam){
-        boolean isWater = mc.path.endsWith(".water");
-        if (mc.path.endsWith(".gltf") || mc.path.endsWith(".glb")){
-            ModelAsset model = assets.model(mc.path);
+        // v2.2 RND-033: automatic LOD selection by screen-size metric
+        String renderPath = mc.path;
+        if(!mc.lods.isEmpty()){
+            float dist = e.worldPosition().dist(cam.eye);
+            // angular-fraction scale: 1 / (2·tan(fov/2)) — metric = fraction of screen height
+            float angScale = 1f / (2f * (float)Math.tan(Math.toRadians(cam.fovY) * 0.5f));
+            String picked = lod.select(e, mc, dist, angScale);
+            if(picked != null) renderPath = picked;
+        }
+        boolean isWater = renderPath.endsWith(".water");
+        if (renderPath.endsWith(".gltf") || renderPath.endsWith(".glb")){
+            ModelAsset model = assets.model(renderPath);
             if (model == null) return;
             for (int mi = 0; mi < model.meshes.size(); mi++){
                 ModelAsset.MeshAsset ma = model.meshes.get(mi);
@@ -681,7 +762,7 @@ public final class PbrRenderer {
                 }
             }
         } else {
-            GpuMesh g = getMesh(assets.mesh(mc.path));
+            GpuMesh g = getMesh(assets.mesh(renderPath));
             if (g == null) return;
             addItem(e, mc, g, null, "default", isWater, cam);
         }
@@ -1284,6 +1365,60 @@ public final class PbrRenderer {
                 // (sceneSource already points at it)
             }
             GlObjects.Fbo.unbindDefault(surfaceW, surfaceH);
+        }
+
+        // ---- v2.2: screen-space FX pass (PST-009..020, RND-031) ----
+        if(frameSvc != null && postfx.needsFxPass() && fxShader != null && fxShader.ok() && fxFboA != null){
+            PostFX p = frameSvc.postfx;
+            fxFboA.bind();
+            fxShader.use();
+            fxShader.setInt("uScene", 0);
+            fxShader.setInt("uDepth", 1);
+            fxShader.setVec2Direct("uTexel", 1f / renderW, 1f / renderH);
+            fxShader.setFloat("uTime", time);
+            fxShader.setFloat("uSanity", p.sanity);
+            fxShader.setFloat("uRadial", p.radialBlur);
+            fxShader.setVec2Direct("uRadialCenter", p.radialCenter[0], p.radialCenter[1]);
+            fxShader.setFloat("uDof", p.dofEnabled ? 1f : 0f);
+            fxShader.setFloat("uDofFocus", p.dofFocus);
+            fxShader.setFloat("uDofRange", p.dofRange);
+            fxShader.setFloat("uShaft", Math.max(p.godRays, 0f));
+            // sun screen position (project a far point along the sun direction)
+            float sunU = -2f, sunV = -2f;
+            if(sunPresent){
+                Vec3 sunWorld = cam.eye.cpy().addScaled(sunDirScene, -80f);  // toward the sun
+                Vec3 clip = cam.viewProj.transformPoint(sunWorld);
+                float w = cam.viewProj.m[3]*sunWorld.x + cam.viewProj.m[7]*sunWorld.y + cam.viewProj.m[11]*sunWorld.z + cam.viewProj.m[15];
+                if(w > 0.001f){
+                    sunU = clip.x * 0.5f + 0.5f;
+                    sunV = clip.y * 0.5f + 0.5f;
+                    if(sunU < -0.4f || sunU > 1.4f || sunV < -0.4f || sunV > 1.4f){ sunU = -2f; }
+                }
+            }
+            fxShader.setVec2Direct("uSunUV", sunU, sunV);
+            fxShader.setFloat("uCrt", p.crt);
+            fxShader.setFloat("uOutline", p.outlineEnabled ? p.outlineThreshold * 500f : 0f);
+            fxShader.setVec3("uOutlineColor", p.outlineColor[0], p.outlineColor[1], p.outlineColor[2]);
+            fxShader.setFloat("uBlood", p.blood);
+            fxShader.setFloat("uBloodSeed", p.bloodSeed);
+            fxShader.setFloat("uDistort", p.distortion);
+            fxShader.setFloat("uDistortScale", p.distortionScale);
+            fxShader.setFloat("uDistortSpeed", p.distortionSpeed);
+            fxShader.setFloat("uPosterize", p.posterize);
+            fxShader.setInt("uPosterizeLevels", p.posterizeLevels);
+            fxShader.setFloat("uLutBlend", p.lutBlend);
+            fxShader.setVec3("uLutA", p.lutA[0], p.lutA[1], p.lutA[2]);
+            fxShader.setVec3("uLutB", p.lutB[0], p.lutB[1], p.lutB[2]);
+            fxShader.setFloat("uMotion", p.motionBlur);
+            fxShader.setVec2Direct("uMotionDir", p.motionDir[0], p.motionDir[1]);
+            fxShader.setFloat("uShake", p.shake);
+            fxShader.setInt("uTaps", p.blurTaps(PostFX.Quality.valueOf(cfg.quality.name())));
+            sceneSource.bind(0);
+            if(sceneFbo.depthTex != null) sceneFbo.depthTex.bind(1);
+            else GlObjects.Texture2D.white().bind(1);
+            GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 3);
+            stats.drawCalls++;
+            sceneSource = fxFboA.color;
         }
 
         boolean bloomOn = cfg.bloom && cfg.quality != RendererConfig.Quality.LOW;

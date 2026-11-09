@@ -17,7 +17,7 @@ public final class JsonW {
     private void close(char c){ depth--; b.append(c); needComma=true; }
     private void comma(){ if(needComma) b.append(','); needComma=false; }
 
-    public void key(String k){ comma(); Json.keyRaw(k, b); b.append(':'); needComma=false; }
+    public void key(String k){ comma(); Json.keyRaw(k, b); needComma=false; }
 
     public JsonW kv(String k, String v){ key(k); Json.valRaw(v, b); needComma=true; return this; }
     public JsonW kv(String k, double v){ key(k); b.append(Json.numRaw(v)); needComma=true; return this; }
