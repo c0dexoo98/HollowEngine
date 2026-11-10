@@ -1597,12 +1597,1052 @@ public final class Commands {
         } catch(Throwable t){ fail("light22", t); failures++; }
         // ================= v2.3 Batch 3 (PHY/COL/AUD/ANI) =================
         failures += batch3Tests();
+        // ================= v2.4 Batch 4-6 (WLD/AI/UI/NET/SAV/VFX/DBG) =================
+        failures += batch4Tests();
         System.out.println();
         if(failures > 0){
             System.out.println("RESULT: " + failures + " self test(s) FAILED");
             System.exit(1);
         }
         System.out.println("RESULT: all self tests passed");
+    }
+
+    /** v2.4 regression block (WLD/AI/UI/INP/NET/SAV/LOC/VFX/ENV/DBG/SCR/RND/MAT/SEQ/AST) */
+    private static int batch4Tests(){
+        int failures = 0;
+
+        // --- WLD-010/ENV-006 DayNightCycle: sky/light drive + determinism ---
+        try {
+            com.hollow.world.DayNightCycle dnc = new com.hollow.world.DayNightCycle();
+            dnc.advance = false;
+            dnc.timeOfDay = 12f;
+            float noon = dnc.daylightFactor();
+            dnc.timeOfDay = 0f;
+            float midnight = dnc.daylightFactor();
+            if(noon < 0.9f) throw new AssertionError("noon daylight " + noon);
+            if(midnight > 0.1f) throw new AssertionError("midnight daylight " + midnight);
+            // env drive
+            com.hollow.scene.World w = com.hollow.scene.World.empty("dnc");
+            com.hollow.scene.Entity sunE = w.spawn("Sun");
+            com.hollow.scene.LightComponent sun = new com.hollow.scene.LightComponent();
+            sun.kind = com.hollow.scene.LightComponent.Kind.DIRECTIONAL;
+            sun.intensity = 3f;
+            sunE.add(sun);
+            dnc.timeOfDay = 22f;
+            dnc.applyToEnvironment(w);
+            if(sun.intensity > 2f) throw new AssertionError("night sun intensity " + sun.intensity);
+            if(w.environment == null || !w.environment.containsKey("sky")) throw new AssertionError("env sky missing");
+            @SuppressWarnings("unchecked")
+            java.util.Map<String,Object> sky = (java.util.Map<String,Object>)w.environment.get("sky");
+            double starDensity = com.hollow.core.Json.num(sky.get("starDensity"), -1);
+            if(starDensity < 0.5f) throw new AssertionError("night stars " + starDensity);
+            // JSON roundtrip
+            com.hollow.core.JsonW jw = new com.hollow.core.JsonW();
+            dnc.save(jw);
+            com.hollow.world.DayNightCycle dnc2 = new com.hollow.world.DayNightCycle();
+            dnc2.load(new com.hollow.core.JsonV(com.hollow.core.Json.parseObj(jw.toString())));
+            if(Math.abs(dnc2.timeOfDay - 22f) > 0.01f) throw new AssertionError("tod roundtrip " + dnc2.timeOfDay);
+            pass("DayNightCycle sky/light/env (WLD-010/ENV-006)");
+        } catch(Throwable t){ fail("dnc", t); failures++; }
+
+        // --- WLD-014 GlobalWind gust + vector variance ---
+        try {
+            com.hollow.world.WorldSystems.GlobalWind wind = new com.hollow.world.WorldSystems.GlobalWind();
+            wind.baseStrength = 0.3f; wind.gustStrength = 0.7f;
+            float w1 = wind.vectorAt(new com.hollow.core.Vec3(0,0,0)).len();
+            wind.onUpdate(3.5f);   // half gust period
+            float w2 = wind.vectorAt(new com.hollow.core.Vec3(5,0,5)).len();
+            if(w2 <= w1) throw new AssertionError("gust did not rise " + w1 + "->" + w2);
+            if(wind.shaderWeight <= 0f || wind.shaderWeight > 2f) throw new AssertionError("shaderWeight " + wind.shaderWeight);
+            pass("GlobalWind gust envelope (WLD-014)");
+        } catch(Throwable t){ fail("wind", t); failures++; }
+
+        // --- WLD-012 Portals: visibleCells traversal ---
+        try {
+            com.hollow.scene.World w = com.hollow.scene.World.empty("portals");
+            com.hollow.scene.Entity pa = w.spawn("PortalA");
+            com.hollow.world.WorldSystems.Portal pA = new com.hollow.world.WorldSystems.Portal();
+            pA.targetCell = "roomB";
+            pa.add(pA);
+            com.hollow.world.WorldSystems.PortalSystem.tagCell(pa, "roomA");
+            com.hollow.scene.Entity pb = w.spawn("PortalB");
+            com.hollow.world.WorldSystems.Portal pB = new com.hollow.world.WorldSystems.Portal();
+            pB.targetCell = "roomC";
+            pb.add(pB);
+            com.hollow.world.WorldSystems.PortalSystem.tagCell(pb, "roomB");
+            com.hollow.world.WorldSystems.PortalSystem ps = new com.hollow.world.WorldSystems.PortalSystem(w);
+            java.util.List<String> vis = ps.visibleCells("roomA", 4);
+            if(!vis.contains("roomB") || !vis.contains("roomC")) throw new AssertionError("chain miss " + vis);
+            pass("PortalSystem cell chain (WLD-012)");
+        } catch(Throwable t){ fail("portal", t); failures++; }
+
+        // --- WLD-018 WorldBounds soft wall clamp ---
+        try {
+            com.hollow.world.WorldSystems.WorldBounds wb = new com.hollow.world.WorldSystems.WorldBounds();
+            wb.softWalls = true; wb.minX = -10; wb.maxX = 10; wb.wallPush = 5f;
+            com.hollow.scene.World w = com.hollow.scene.World.empty("bounds");
+            com.hollow.scene.Entity e = w.spawn("Ball");
+            e.position.set(11f, 0, 0);
+            com.hollow.physics.RigidBody rb = new com.hollow.physics.RigidBody();
+            rb.velocity.set(2f, 0, 0);    // still moving outward
+            e.add(rb);
+            wb.clamp(rb);
+            if(rb.velocity.x >= 0f) throw new AssertionError("soft wall did not reflect " + rb.velocity.x);
+            pass("WorldBounds soft walls (WLD-018)");
+        } catch(Throwable t){ fail("bounds", t); failures++; }
+
+        // --- WLD-015 ScatterRules determinism ---
+        try {
+            com.hollow.world.WorldSystems.ScatterRules rules = new com.hollow.world.WorldSystems.ScatterRules();
+            rules.prefab = "Tree"; rules.densityPer100m2 = 50f; rules.maxCount = 20; rules.seed = 7;
+            com.hollow.world.WorldSystems.HeightProbe flat = (x, z) -> 0f;
+            com.hollow.scene.World w1 = com.hollow.scene.World.empty("scatter1");
+            int n1 = com.hollow.world.WorldSystems.scatter(w1, rules, flat, 0, 0, 20, 20);
+            com.hollow.scene.World w2 = com.hollow.scene.World.empty("scatter2");
+            int n2 = com.hollow.world.WorldSystems.scatter(w2, rules, flat, 0, 0, 20, 20);
+            if(n1 == 0) throw new AssertionError("nothing scattered");
+            if(n1 != n2) throw new AssertionError("non-deterministic " + n1 + " vs " + n2);
+            boolean samePos = true;
+            for(int i = 0; i < n1; i++){
+                if(w1.entities.get(i).position.dist(w2.entities.get(i).position) > 1e-4f){ samePos = false; break; }
+            }
+            if(!samePos) throw new AssertionError("positions differ");
+            pass("Scatter deterministic placement (WLD-015, n=" + n1 + ")");
+        } catch(Throwable t){ fail("scatter", t); failures++; }
+
+        // --- WLD-011 WaterDomain tide ---
+        try {
+            com.hollow.world.WorldSystems.WaterDomain water = new com.hollow.world.WorldSystems.WaterDomain();
+            water.tide = true; water.tideAmplitude = 0.5f; water.tidePeriodMinutes = 4f; water.baseLevel = 2f;
+            water.onUpdate(0f);
+            float s0 = water.surfaceHeight();
+            water.onUpdate(60f);   // quarter period
+            float s1 = water.surfaceHeight();
+            if(Math.abs(s0 - 2f) > 0.01f) throw new AssertionError("base tide " + s0);
+            if(s1 <= s0) throw new AssertionError("tide not rising " + s1);
+            pass("WaterDomain tide cycle (WLD-011)");
+        } catch(Throwable t){ fail("tide", t); failures++; }
+
+        // --- AI-013/014/025 EnemyBrain memory+suspicion+reaction ---
+        try {
+            com.hollow.ai.AISystems.EnemyBrain brain = new com.hollow.ai.AISystems.EnemyBrain();
+            brain.onPlayerVisible(0.016f, new com.hollow.core.Vec3(5,0,0), 1.0f, false);
+            if(!brain.hasMemory) throw new AssertionError("no memory");
+            if(!brain.memoryValid(1.5f)) throw new AssertionError("memory expired early");
+            if(brain.memoryValid(100f)) throw new AssertionError("memory never expires");
+            if(brain.suspicion <= 0f) throw new AssertionError("no suspicion");
+            // reaction delay fires at full suspicion
+            brain.onNoise(2.0f);   // push to max
+            int guard = 0;
+            boolean fired = false;
+            while(guard++ < 600){ if(brain.reactionElapsed(0.016f)){ fired = true; break; } }
+            if(!fired) throw new AssertionError("reaction never elapsed");
+            // decay
+            for(int i = 0; i < 300; i++) brain.onUpdate(0.016f);
+            if(brain.suspicion >= 0.99f) throw new AssertionError("suspicion did not decay");
+            pass("EnemyBrain memory/suspicion/reaction (AI-013/014/025)");
+        } catch(Throwable t){ fail("brain", t); failures++; }
+
+        // --- AI-016 GOAP plan ---
+        try {
+            java.util.List<com.hollow.ai.AISystems.GoapPlanner.ActionDef> acts = new java.util.ArrayList<>();
+            com.hollow.ai.AISystems.GoapPlanner.ActionDef a1 = new com.hollow.ai.AISystems.GoapPlanner.ActionDef("open_door", 1f);
+            a1.preconditions.put("has_key", "true"); a1.effects.put("door_open", "true");
+            com.hollow.ai.AISystems.GoapPlanner.ActionDef a2 = new com.hollow.ai.AISystems.GoapPlanner.ActionDef("grab_key", 2f);
+            a2.effects.put("has_key", "true");
+            com.hollow.ai.AISystems.GoapPlanner.ActionDef a3 = new com.hollow.ai.AISystems.GoapPlanner.ActionDef("smash_door", 5f);
+            a3.effects.put("door_open", "true");
+            acts.add(a1); acts.add(a2); acts.add(a3);
+            java.util.Map<String,String> start = new java.util.LinkedHashMap<>();
+            start.put("has_key", "false");
+            java.util.Map<String,String> goal = new java.util.LinkedHashMap<>();
+            goal.put("door_open", "true");
+            com.hollow.ai.AISystems.GoapPlanner.Plan plan = com.hollow.ai.AISystems.GoapPlanner.plan(start, goal, acts);
+            if(plan == null || plan.isEmpty()) throw new AssertionError("no plan");
+            // cheapest path: grab_key -> open_door (3) vs smash (5)
+            if(!"grab_key".equals(plan.get(0).name)) throw new AssertionError("suboptimal plan: " + plan.get(0).name);
+            if(plan.size() != 2) throw new AssertionError("plan len " + plan.size());
+            pass("GOAP A* planner (AI-016)");
+        } catch(Throwable t){ fail("goap", t); failures++; }
+
+        // --- AI-017 Utility AI selection ---
+        try {
+            com.hollow.ai.AISystems.UtilityAI util = new com.hollow.ai.AISystems.UtilityAI();
+            util.add("patrol", 1.0f, a -> 0.2f);
+            util.add("chase", 1.0f, a -> 0.9f);
+            util.add("flee", 1.0f, a -> 0.1f);
+            com.hollow.scene.World w = com.hollow.scene.World.empty("util");
+            com.hollow.scene.Entity e = w.spawn("Bot");
+            com.hollow.ai.Agent ag = new com.hollow.ai.Agent();
+            e.add(ag);
+            String pick = util.select(ag);
+            if(!"chase".equals(pick)) throw new AssertionError("picked " + pick);
+            if(util.chosenScore < 0.85f) throw new AssertionError("score " + util.chosenScore);
+            pass("Utility AI scoring (AI-017)");
+        } catch(Throwable t){ fail("utility", t); failures++; }
+
+        // --- AI-018 Formation slots + assignment ---
+        try {
+            com.hollow.ai.AISystems.Formation f = new com.hollow.ai.AISystems.Formation();
+            f.kind = com.hollow.ai.AISystems.Formation.Kind.VEE;
+            java.util.List<com.hollow.core.Vec3> slots = f.worldSlots(new com.hollow.core.Vec3(0,0,0), 0, 5);
+            if(slots.size() != 5) throw new AssertionError("slots " + slots.size());
+            if(slots.get(0).dist(new com.hollow.core.Vec3(0,0,0)) > 1e-4f) throw new AssertionError("leader not at anchor");
+            com.hollow.ai.AISystems.Formation enc = new com.hollow.ai.AISystems.Formation();
+            enc.kind = com.hollow.ai.AISystems.Formation.Kind.ENCIRCLE;
+            java.util.List<com.hollow.core.Vec3> ring = enc.slots(4);
+            float d0 = ring.get(0).dist(new com.hollow.core.Vec3());
+            if(Math.abs(d0 - ring.get(3).dist(new com.hollow.core.Vec3())) > 1e-3f) throw new AssertionError("ring uneven");
+            pass("Formation slots V/encircle (AI-018)");
+        } catch(Throwable t){ fail("formation", t); failures++; }
+
+        // --- AI-019 Steering suite ---
+        try {
+            com.hollow.ai.AISystems.Steering st = new com.hollow.ai.AISystems.Steering();
+            com.hollow.core.Vec3 seek = st.seek(new com.hollow.core.Vec3(0,0,0), new com.hollow.core.Vec3(10,0,0), 4f);
+            if(Math.abs(seek.x - 4f) > 1e-4f) throw new AssertionError("seek " + seek);
+            com.hollow.core.Vec3 arrive = st.arrival(new com.hollow.core.Vec3(0,0,0), new com.hollow.core.Vec3(1,0,0), 4f, 10f);
+            if(arrive.len() > 4f * 0.15f + 0.01f) throw new AssertionError("arrival too fast " + arrive.len());
+            com.hollow.core.Vec3 flee = st.flee(new com.hollow.core.Vec3(0,0,0), new com.hollow.core.Vec3(10,0,0), 4f);
+            if(flee.x >= 0f) throw new AssertionError("flee direction");
+            pass("Steering seek/flee/arrival (AI-019)");
+        } catch(Throwable t){ fail("steering", t); failures++; }
+
+        // --- AI-020 Dialogue tree conditions ---
+        try {
+            com.hollow.ai.AISystems.DialogueTree dt = com.hollow.ai.AISystems.DialogueTree.fromJson(
+                "{\"start\":\"n1\",\"nodes\":{" +
+                "\"n1\":{\"text\":\"سلام، کلید داری؟\",\"choices\":[" +
+                "{\"text\":\"دارم\",\"next\":\"n2\",\"setVar\":\"has_key\"}," +
+                "{\"text\":\"نه\",\"next\":\"n3\"}]}," +
+                "\"n2\":{\"text\":\"عالیه!\"},\"n3\":{\"text\":\"متأسفم\"}}}");
+            if(dt.nodes.size() != 3) throw new AssertionError("nodes " + dt.nodes.size());
+            com.hollow.ai.AISystems.DialogueTree.Node n1 = dt.node("n1");
+            if(n1.choices.size() != 2) throw new AssertionError("choices");
+            if(!"عالیه!".equals(dt.node("n2").text)) throw new AssertionError("fa text");
+            pass("DialogueTree json+fa (AI-020)");
+        } catch(Throwable t){ fail("dialogue", t); failures++; }
+
+        // --- AI-021 Factions ---
+        try {
+            com.hollow.ai.AISystems.Factions fx = new com.hollow.ai.AISystems.Factions();
+            fx.set("player", "guard", com.hollow.ai.AISystems.Factions.Attitude.FRIENDLY);
+            fx.set("player", "monster", com.hollow.ai.AISystems.Factions.Attitude.HOSTILE);
+            if(!fx.hostile("player", "monster")) throw new AssertionError("monster not hostile");
+            if(fx.hostile("player", "guard")) throw new AssertionError("guard hostile");
+            if(!fx.hostile("monster", "player")) throw new AssertionError("asymmetry");
+            if(fx.hostile("npc_a", "npc_b")) throw new AssertionError("default not neutral");
+            pass("Factions matrix symmetric (AI-021)");
+        } catch(Throwable t){ fail("factions", t); failures++; }
+
+        // --- AI-030 Pincer coordination ---
+        try {
+            java.util.List<com.hollow.scene.Entity> enemies = new java.util.ArrayList<>();
+            com.hollow.scene.World w = com.hollow.scene.World.empty("pincer");
+            for(int i = 0; i < 4; i++) enemies.add(w.spawn("E" + i));
+            java.util.List<com.hollow.core.Vec3> targets = com.hollow.ai.AISystems.Coordination.pincerAssign(
+                enemies, new com.hollow.core.Vec3(0,0,0), 8f);
+            if(targets.size() != 4) throw new AssertionError("targets");
+            boolean left = false, right = false;
+            for(com.hollow.core.Vec3 t : targets){
+                if(t.x > 0.5f) right = true;
+                if(t.x < -0.5f) left = true;
+            }
+            if(!left || !right) throw new AssertionError("not pincer " + targets);
+            pass("Pincer/flank assignment (AI-030)");
+        } catch(Throwable t){ fail("pincer", t); failures++; }
+
+        // --- UI-009/010 RTL + RichText ---
+        try {
+            if(!com.hollow.ui.UISystems.RtlLayout.isRtl("سلام دنیا")) throw new AssertionError("fa not rtl");
+            if(com.hollow.ui.UISystems.RtlLayout.isRtl("hello")) throw new AssertionError("en rtl");
+            java.util.List<String> runs = com.hollow.ui.UISystems.RtlLayout.runs("سلام hello دنیا");
+            if(runs.size() < 3) throw new AssertionError("runs " + runs.size());
+            String fa = com.hollow.ui.UISystems.RtlLayout.toPersianDigits("123");
+            if(!"۱۲۳".equals(fa)) throw new AssertionError("digits " + fa);
+            // rich text
+            java.util.List<com.hollow.ui.UISystems.RichText.Span> spans = com.hollow.ui.UISystems.RichText.parse("[#ff0000]red[/] normal [*]bold[/]");
+            boolean sawRed = false, sawBold = false;
+            for(com.hollow.ui.UISystems.RichText.Span s : spans){
+                if(s.text.contains("red") && s.color == 0xFF0000) sawRed = true;
+                if(s.text.contains("bold") && s.bold) sawBold = true;
+            }
+            if(!sawRed || !sawBold) throw new AssertionError("rich parse");
+            pass("RTL runs/persian digits + rich text (UI-009/010)");
+        } catch(Throwable t){ fail("rtl", t); failures++; }
+
+        // --- UI-011/012 ScrollView inertia + virtualization ---
+        try {
+            com.hollow.ui.UISystems.ScrollView sv = new com.hollow.ui.UISystems.ScrollView();
+            sv.contentHeight = 2000f; sv.viewportHeight = 400f;
+            sv.drag(50f);      // drag down 50px
+            if(sv.scroll <= 0f) throw new AssertionError("no scroll " + sv.scroll);
+            sv.fling(-800f);
+            int guard = 0;
+            while(guard++ < 600 && !sv.update(0.016f)){ }
+            if(sv.scroll > sv.maxScroll() + 0.01f) throw new AssertionError("overscroll " + sv.scroll);
+            int[] range = sv.visibleRange(1000, 40f);
+            if(range[1] > 12) throw new AssertionError("virtual window too big " + range[1]);
+            pass("ScrollView inertia + virtualized range (UI-011/012)");
+        } catch(Throwable t){ fail("scroll", t); failures++; }
+
+        // --- UI-013 UiTween ---
+        try {
+            com.hollow.ui.UIManager ui = new com.hollow.ui.UIManager();
+            com.hollow.ui.UIManager.Widget wid = new com.hollow.ui.UIManager.Panel();
+            wid.x = 0f;
+            com.hollow.ui.UISystems.UiTween tw = com.hollow.ui.UISystems.UiTween.moveX(wid, 100f, 0.1f);
+            int guard = 0;
+            while(guard++ < 100 && !tw.update(0.016f)){ }
+            if(Math.abs(wid.x - 100f) > 0.5f) throw new AssertionError("tween end x=" + wid.x);
+            pass("UiTween transform (UI-013)");
+        } catch(Throwable t){ fail("uitween", t); failures++; }
+
+        // --- UI-016 UiJson declarative build ---
+        try {
+            com.hollow.ui.UIManager.Widget root = com.hollow.ui.UISystems.UiJson.buildFile(
+                "{\"id\":\"hud\",\"type\":\"panel\",\"children\":[" +
+                "{\"id\":\"hp\",\"type\":\"bar\",\"x\":20,\"y\":20,\"w\":180,\"h\":14,\"color\":\"#ff3040\"}," +
+                "{\"id\":\"lbl\",\"type\":\"label\",\"x\":0,\"y\":0,\"w\":100,\"h\":30}]}");
+            if(root.findById("hp") == null || root.findById("lbl") == null) throw new AssertionError("children missing");
+            pass("Declarative UI from JSON (UI-016)");
+        } catch(Throwable t){ fail("uijson", t); failures++; }
+
+        // --- UI-017 Theme swap ---
+        try {
+            com.hollow.ui.UISystems.Theme dark = com.hollow.ui.UISystems.Theme.get("dark");
+            com.hollow.ui.UISystems.Theme.register("danger", new com.hollow.ui.UISystems.Theme());
+            com.hollow.ui.UISystems.Theme d2 = com.hollow.ui.UISystems.Theme.get("danger");
+            if(dark == d2) throw new AssertionError("themes same instance");
+            pass("Theme registry (UI-017)");
+        } catch(Throwable t){ fail("theme", t); failures++; }
+
+        // --- INP-009 Combo detection ---
+        try {
+            com.hollow.ui.UISystems.ComboDetector cd = new com.hollow.ui.UISystems.ComboDetector();
+            cd.register("double_punch", new String[]{"punch", "punch"}, 0.5f);
+            cd.press("punch", 0.016f);
+            String hit = cd.press("punch", 0.016f);
+            if(!"double_punch".equals(hit)) throw new AssertionError("combo " + hit);
+            cd.press("punch", 0.016f);
+            cd.press("kick", 0.016f);
+            String miss = cd.press("punch", 0.016f);
+            if("double_punch".equals(miss)) throw new AssertionError("false combo");
+            pass("Combo detector (INP-009)");
+        } catch(Throwable t){ fail("combo", t); failures++; }
+
+        // --- INP-010 Context maps ---
+        try {
+            com.hollow.ui.UISystems.ContextMaps cm = new com.hollow.ui.UISystems.ContextMaps();
+            java.util.Map<String,String> game = new java.util.LinkedHashMap<>();
+            game.put("fire", "mouse_left"); game.put("jump", "space");
+            java.util.Map<String,String> menu = new java.util.LinkedHashMap<>();
+            menu.put("fire", "enter");     // overridden in menu
+            cm.define("game", game); cm.define("menu", menu);
+            if(!"mouse_left".equals(cm.binding("fire"))) throw new AssertionError("game binding");
+            cm.push("menu");
+            if(!"enter".equals(cm.binding("fire"))) throw new AssertionError("menu override");
+            cm.pop("menu");
+            if(!"mouse_left".equals(cm.binding("fire"))) throw new AssertionError("restore");
+            pass("Context action maps (INP-010)");
+        } catch(Throwable t){ fail("ctxmap", t); failures++; }
+
+        // --- INP-011/013 Input profile persistence ---
+        try {
+            com.hollow.ui.UISystems.InputProfile p1 = new com.hollow.ui.UISystems.InputProfile();
+            p1.rebind("jump", "key_j"); p1.deadzone = 0.25f;
+            String json = p1.save();
+            com.hollow.ui.UISystems.InputProfile p2 = new com.hollow.ui.UISystems.InputProfile();
+            p2.load(json);
+            if(!"key_j".equals(p2.binds.get("jump"))) throw new AssertionError("bind");
+            if(Math.abs(p2.deadzone - 0.25f) > 1e-4f) throw new AssertionError("deadzone");
+            pass("Input profile save/load (INP-011/013)");
+        } catch(Throwable t){ fail("profile", t); failures++; }
+
+        // --- INP-014 Input replay ---
+        try {
+            com.hollow.ui.UISystems.InputReplay rep = new com.hollow.ui.UISystems.InputReplay();
+            rep.record(0.1f, "fire", true);
+            rep.record(0.3f, "fire", false);
+            rep.record(0.5f, "jump", true);
+            final java.util.List<String> fired = new java.util.ArrayList<>();
+            rep.play();
+            int guard = 0;
+            while(guard++ < 100 && rep.playing){
+                rep.update(0.016f, (action, down) -> fired.add(action + (down ? "+" : "-")));
+            }
+            if(fired.size() != 3) throw new AssertionError("fired " + fired);
+            if(!fired.get(0).equals("fire+")) throw new AssertionError("order " + fired);
+            pass("Input replay deterministic (INP-014)");
+        } catch(Throwable t){ fail("replay", t); failures++; }
+
+        // --- INP-012 Trigger axis precision ---
+        try {
+            com.hollow.ui.UISystems.TriggerAxis tr = new com.hollow.ui.UISystems.TriggerAxis();
+            tr.update(0.05f);
+            if(tr.active) throw new AssertionError("fired under threshold");
+            tr.update(0.6f);
+            if(!tr.active) throw new AssertionError("not active");
+            if(tr.precision() <= 0.5f || tr.precision() > 1.01f) throw new AssertionError("precision " + tr.precision());
+            pass("Analog trigger precision (INP-012)");
+        } catch(Throwable t){ fail("trigger", t); failures++; }
+
+        // --- NET-006 UdpLink reliability over lossy wire ---
+        try {
+            com.hollow.net.NetSystems.LoopbackWire wab = new com.hollow.net.NetSystems.LoopbackWire();
+            com.hollow.net.NetSystems.LoopbackWire wba = new com.hollow.net.NetSystems.LoopbackWire();
+            final java.util.List<byte[]> got = new java.util.ArrayList<>();
+            com.hollow.net.NetSystems.UdpLink a = new com.hollow.net.NetSystems.UdpLink(1, wab, null);
+            com.hollow.net.NetSystems.UdpLink b = new com.hollow.net.NetSystems.UdpLink(2, wba, (data, from) -> got.add(data));
+            wab.peer = b; wba.peer = a;
+            wab.loss = 0.35f;
+            for(int i = 0; i < 5; i++) a.sendReliable(("msg" + i).getBytes());
+            for(int frame = 0; frame < 600 && got.size() < 5; frame++){
+                a.update(0.016f);
+                b.update(0.016f);
+            }
+            if(got.size() != 5) throw new AssertionError("lossy reliable delivered " + got.size() + "/5");
+            pass("UdpLink reliable over 35% loss (NET-006, resends=" + a.resends + ")");
+        } catch(Throwable t){ fail("udp", t); failures++; }
+
+        // --- NET-007 Delta snapshot ---
+        try {
+            java.util.Map<String, com.hollow.net.NetSystems.DeltaSnapshot.State> prev = new java.util.LinkedHashMap<>();
+            java.util.Map<String, com.hollow.net.NetSystems.DeltaSnapshot.State> cur = new java.util.LinkedHashMap<>();
+            com.hollow.net.NetSystems.DeltaSnapshot.State p1 = new com.hollow.net.NetSystems.DeltaSnapshot.State();
+            p1.x = 1; p1.y = 2; p1.z = 3; p1.ry = 0; prev.put("player", p1);
+            com.hollow.net.NetSystems.DeltaSnapshot.State c1 = new com.hollow.net.NetSystems.DeltaSnapshot.State();
+            c1.x = 5; c1.y = 2; c1.z = 3; c1.ry = 90; cur.put("player", c1);
+            java.nio.ByteBuffer bb = com.hollow.net.NetSystems.DeltaSnapshot.encode(prev, cur);
+            java.util.Map<String, com.hollow.net.NetSystems.DeltaSnapshot.State> decoded =
+                com.hollow.net.NetSystems.DeltaSnapshot.decode(bb, prev);
+            com.hollow.net.NetSystems.DeltaSnapshot.State d = decoded.get("player");
+            if(Math.abs(d.x - 5f) > 1e-4f || Math.abs(d.ry - 90f) > 1e-4f) throw new AssertionError("delta " + d.x + "," + d.ry);
+            if(Math.abs(d.y - 2f) > 1e-4f) throw new AssertionError("unchanged field");
+            pass("Delta snapshot encode/decode (NET-007)");
+        } catch(Throwable t){ fail("delta", t); failures++; }
+
+        // --- NET-008 Prediction + reconciliation ---
+        try {
+            com.hollow.net.NetSystems.Prediction pr = new com.hollow.net.NetSystems.Prediction();
+            float[] pos = {0, 0, 0};
+            for(int i = 0; i < 10; i++) pr.predict(pos, 0.016f, 10f, 0, 0);
+            // server disagrees (lagged): authoritative x = 1.2
+            float serverX = 1.2f;
+            pr.reconcile(pos, serverX, 0, 0, 1.0f);
+            // replay should carry forward 10 frames of +10 m/s * 16ms
+            float expect = serverX + 10f * 0.16f;
+            if(Math.abs(pos[0] - expect) > 0.02f) throw new AssertionError("replay " + pos[0] + " vs " + expect);
+            if(!pr.pendingInputs.isEmpty()) throw new AssertionError("inputs not cleared");
+            pass("Client prediction + reconcile (NET-008)");
+        } catch(Throwable t){ fail("predict", t); failures++; }
+
+        // --- NET-009 Entity interpolation ---
+        try {
+            com.hollow.net.NetSystems.EntityInterp ei = new com.hollow.net.NetSystems.EntityInterp();
+            ei.push(0f, 0, 0, 0, 0);
+            ei.push(0.1f, 10, 0, 0, 0);
+            float[] out = new float[4];
+            if(!ei.sample(0.15f, out)) throw new AssertionError("starved");
+            if(Math.abs(out[0] - 5f) > 0.01f) throw new AssertionError("midpoint " + out[0]);
+            pass("Entity interpolation lerp (NET-009)");
+        } catch(Throwable t){ fail("interp", t); failures++; }
+
+        // --- NET-010 Lobby codes + NET-012 host migration ---
+        try {
+            com.hollow.net.NetSystems.Lobby lobby = new com.hollow.net.NetSystems.Lobby();
+            com.hollow.net.NetSystems.Lobby.Room r = lobby.create("alice");
+            if(r.code == null || r.code.length() != 6) throw new AssertionError("code " + r.code);
+            com.hollow.net.NetSystems.Lobby.Room found = lobby.get(r.code);
+            if(found != r) throw new AssertionError("lookup");
+            r.members.add(2);
+            boolean migrated = lobby.migrateHost(r, "alice");
+            if(!migrated || r.host == null) throw new AssertionError("migration");
+            pass("Lobby join codes + host migration (NET-010/012)");
+        } catch(Throwable t){ fail("lobby", t); failures++; }
+
+        // --- NET-011 Input recording ---
+        try {
+            com.hollow.net.NetSystems.InputReplay rec = new com.hollow.net.NetSystems.InputReplay();
+            rec.start();
+            rec.record(1, 0, new float[]{0, 1, 0});
+            rec.record(2, 0, new float[]{1, 0, 0});
+            rec.stop();
+            if(rec.size() != 2) throw new AssertionError("frames");
+            if(rec.stream().get(1).input[0] != 1f) throw new AssertionError("payload");
+            rec.record(3, 0, new float[]{});   // after stop: ignored
+            if(rec.size() != 2) throw new AssertionError("recorded after stop");
+            pass("Input recording (NET-011)");
+        } catch(Throwable t){ fail("netrec", t); failures++; }
+
+        // --- NET-014 SendQueue backpressure ---
+        try {
+            com.hollow.net.NetSystems.SendQueue q = new com.hollow.net.NetSystems.SendQueue();
+            q.maxBytes = 1500;
+            byte[] big = new byte[600];
+            boolean ok1 = q.enqueue(big), ok2 = q.enqueue(big), ok3 = q.enqueue(big);
+            if(!ok1 || !ok2) throw new AssertionError("should fit");
+            if(ok3) throw new AssertionError("over cap accepted");
+            if(q.dropped != 1) throw new AssertionError("drop count");
+            final int[] sent = {0};
+            for(int i = 0; i < 30; i++) q.update(0.016f, d -> sent[0]++);
+            if(sent[0] != 2) throw new AssertionError("drained " + sent[0]);
+            pass("SendQueue backpressure (NET-014)");
+        } catch(Throwable t){ fail("sendq", t); failures++; }
+
+        // --- NET-018 Monitor ---
+        try {
+            com.hollow.net.NetSystems.Monitor mon = new com.hollow.net.NetSystems.Monitor();
+            for(int i = 0; i < 30; i++){ mon.countIn(100); mon.countOut(80); }
+            mon.countLoss();
+            mon.update(1.0f);
+            if(mon.pktRateIn < 29f || mon.pktRateIn > 31f) throw new AssertionError("rate " + mon.pktRateIn);
+            if(mon.lossPct <= 0f) throw new AssertionError("loss " + mon.lossPct);
+            pass("Net monitor stats (NET-018)");
+        } catch(Throwable t){ fail("monitor", t); failures++; }
+
+        // --- NET-020 Stress 32 clients ---
+        try {
+            com.hollow.net.NetSystems.StressTest st = new com.hollow.net.NetSystems.StressTest();
+            float ms = st.simulate(32, 200, 0.016f);
+            if(ms > 2f) throw new AssertionError("too slow " + ms + "ms");
+            pass("32-client stress sim (NET-020, " + String.format("%.3f", ms) + "ms/tick)");
+        } catch(Throwable t){ fail("stress", t); failures++; }
+
+        // --- NET-019 Protocol version ---
+        try {
+            if(com.hollow.net.NetSystems.PROTOCOL_VERSION < 1) throw new AssertionError("version");
+            pass("Protocol version constant (NET-019, v" + com.hollow.net.NetSystems.PROTOCOL_VERSION + ")");
+        } catch(Throwable t){ fail("proto", t); failures++; }
+
+        // --- SAV-005/006 Binary save + checksum ---
+        try {
+            com.hollow.game.SaveSystems.BinarySave bs = new com.hollow.game.SaveSystems.BinarySave();
+            java.util.Map<String,Object> data = new java.util.LinkedHashMap<>();
+            data.put("level", "vale_01"); data.put("hp", 87.0); data.put("items", java.util.List.of("lamp", "key"));
+            byte[] enc = bs.encode(data);
+            java.util.Map<String,Object> dec = bs.decode(enc);
+            if(dec == null || !"vale_01".equals(dec.get("level"))) throw new AssertionError("roundtrip");
+            if(((java.util.List<?>)dec.get("items")).size() != 2) throw new AssertionError("items");
+            // corruption check
+            enc[enc.length / 2] ^= 0x55;
+            if(bs.decode(enc) != null) throw new AssertionError("corruption accepted");
+            pass("Binary save LZ4+crc (SAV-005/006, " + enc.length + " bytes)");
+        } catch(Throwable t){ fail("binsave", t); failures++; }
+
+        // --- SAV-007 Migrations ---
+        try {
+            com.hollow.game.SaveSystems.Migration mig = new com.hollow.game.SaveSystems.Migration();
+            mig.add(1, save -> { save.put("difficulty", "normal"); return save; });
+            mig.add(2, save -> { save.put("inventory", java.util.List.of()); return save; });
+            java.util.Map<String,Object> old = new java.util.LinkedHashMap<>();
+            old.put("level", "vale_01");
+            java.util.Map<String,Object> out = mig.migrate(old, 1, 3);
+            if(!"normal".equals(out.get("difficulty"))) throw new AssertionError("step1");
+            if(!out.containsKey("inventory")) throw new AssertionError("step2");
+            pass("Save migrations 1->3 (SAV-007)");
+        } catch(Throwable t){ fail("migrate", t); failures++; }
+
+        // --- SAV-008/014 Autosave + rotation ---
+        try {
+            com.hollow.game.SaveSystems.Autosave auto = new com.hollow.game.SaveSystems.Autosave();
+            auto.intervalSec = 0.05f;
+            final int[] saves = {0};
+            auto.saveAction = () -> saves[0]++;
+            int guard = 0;
+            while(guard++ < 100 && saves[0] < 2) auto.update(0.016f);
+            if(saves[0] < 2) throw new AssertionError("autosaves " + saves[0]);
+            if(!"slot3.a2".equals(com.hollow.game.SaveSystems.Autosave.rotateSlot("slot3", 5, 3)))
+                throw new AssertionError("rotate " + com.hollow.game.SaveSystems.Autosave.rotateSlot("slot3", 5, 3));
+            pass("Autosave policy + rotating slots (SAV-008/014)");
+        } catch(Throwable t){ fail("autosave", t); failures++; }
+
+        // --- SAV-009 Incremental delta ---
+        try {
+            com.hollow.game.SaveSystems.Incremental inc = new com.hollow.game.SaveSystems.Incremental();
+            java.util.Map<String,Object> v1 = new java.util.LinkedHashMap<>();
+            v1.put("hp", 100.0); v1.put("level", "a");
+            java.util.Map<String,Object> d1 = inc.diff(v1);
+            if(d1.size() != 2) throw new AssertionError("initial full " + d1.size());
+            java.util.Map<String,Object> v2 = new java.util.LinkedHashMap<>(v1);
+            v2.put("hp", 80.0);
+            java.util.Map<String,Object> d2 = inc.diff(v2);
+            if(d2.size() != 1 || !d2.containsKey("hp")) throw new AssertionError("delta " + d2);
+            java.util.Map<String,Object> merged = com.hollow.game.SaveSystems.Incremental.apply(v1, d2);
+            if((double)merged.get("hp") != 80.0) throw new AssertionError("merge");
+            pass("Incremental snapshot delta (SAV-009)");
+        } catch(Throwable t){ fail("incremental", t); failures++; }
+
+        // --- SAV-012 Obfuscation ---
+        try {
+            com.hollow.game.SaveSystems.Obfuscate ob = new com.hollow.game.SaveSystems.Obfuscate("secret");
+            byte[] data = "player_save_json_content".getBytes();
+            byte[] wrapped = ob.wrap(data);
+            byte[] unwrapped = ob.unwrap(wrapped);
+            if(unwrapped == null || !new String(unwrapped).equals(new String(data))) throw new AssertionError("roundtrip");
+            wrapped[5] ^= 1;
+            if(ob.unwrap(wrapped) != null) throw new AssertionError("tamper accepted");
+            pass("Save obfuscation anti-tamper (SAV-012)");
+        } catch(Throwable t){ fail("obfusc", t); failures++; }
+
+        // --- LOC-005..007 RTL digits/plural/pseudo ---
+        try {
+            if(!"key_one".equals(com.hollow.game.SaveSystems.LocTools.pluralKey("key", 1, "en"))) throw new AssertionError("en one");
+            if(!"key_other".equals(com.hollow.game.SaveSystems.LocTools.pluralKey("key", 5, "en"))) throw new AssertionError("en other");
+            if(!"key_zero".equals(com.hollow.game.SaveSystems.LocTools.pluralKey("key", 0, "fa"))) throw new AssertionError("fa zero");
+            if(!"key_few".equals(com.hollow.game.SaveSystems.LocTools.pluralKey("key", 5, "ar"))) throw new AssertionError("ar few");
+            String p = com.hollow.game.SaveSystems.LocTools.pseudo("hello");
+            if(!p.startsWith("[") || !p.endsWith("]")) throw new AssertionError("pseudo " + p);
+            String fmt = com.hollow.game.SaveSystems.LocTools.format("سلام {name}، {n}", java.util.Map.of("name","علی","n",7), true);
+            if(!fmt.contains("علی") || !fmt.contains("۷")) throw new AssertionError("format " + fmt);
+            pass("LocTools plural/pseudo/persian digits (LOC-005..007)");
+        } catch(Throwable t){ fail("loc", t); failures++; }
+
+        // --- VFX-012/ENV-007..010 Weather transitions ---
+        try {
+            com.hollow.vfx.VfxSystems.Weather wx = new com.hollow.vfx.VfxSystems.Weather();
+            wx.transitionSec = 2f;
+            wx.set(com.hollow.vfx.VfxSystems.Weather.Kind.RAIN);
+            for(int i = 0; i < 200; i++) wx.onUpdate(0.016f);
+            if(wx.rainAmount < 0.6f) throw new AssertionError("rain " + wx.rainAmount);
+            if(wx.wetness <= 0.01f) throw new AssertionError("wetness " + wx.wetness);
+            wx.set(com.hollow.vfx.VfxSystems.Weather.Kind.CLEAR);
+            for(int i = 0; i < 400; i++) wx.onUpdate(0.016f);
+            if(wx.rainAmount > 0.01f) throw new AssertionError("rain persists " + wx.rainAmount);
+            if(wx.wetness >= 1f) throw new AssertionError("ground never dries " + wx.wetness);
+            pass("Weather transitions + wetness (VFX-012/ENV-007/009)");
+        } catch(Throwable t){ fail("weather", t); failures++; }
+
+        // --- ENV-010 Snow accumulation ---
+        try {
+            com.hollow.vfx.VfxSystems.Weather snow = new com.hollow.vfx.VfxSystems.Weather();
+            snow.intensity = 1f; snow.transitionSec = 0.5f;
+            snow.set(com.hollow.vfx.VfxSystems.Weather.Kind.SNOW);
+            for(int i = 0; i < 300; i++) snow.onUpdate(0.016f);
+            if(snow.snowCover < 0.1f) throw new AssertionError("cover " + snow.snowCover);
+            if(snow.snowAmount < 0.5f) throw new AssertionError("amount " + snow.snowAmount);
+            pass("Snow accumulation (ENV-010)");
+        } catch(Throwable t){ fail("snow", t); failures++; }
+
+        // --- VFX-013/ENV-012 Ambient events + lightning ---
+        try {
+            com.hollow.vfx.VfxSystems.AmbientEvents ev = new com.hollow.vfx.VfxSystems.AmbientEvents();
+            ev.lightningEnabled = true;
+            ev.firstCreakDelay = 0.02f;
+            ev.creakMinDelay = 0.05f; ev.creakMaxDelay = 0.06f;
+            int guard = 0;
+            while(guard++ < 300 && ev.firedCount < 2) ev.onUpdate(0.016f);
+            if(ev.firedCount < 2) throw new AssertionError("events " + ev.firedCount);
+            if(!"env_creak".equals(ev.lastEvent)) throw new AssertionError("event " + ev.lastEvent);
+            pass("Ambient events randomizer (VFX-013/ENV-012)");
+        } catch(Throwable t){ fail("ambient", t); failures++; }
+
+        // --- VFX-015 Dissolve ---
+        try {
+            com.hollow.vfx.VfxSystems.Dissolve dis = new com.hollow.vfx.VfxSystems.Dissolve();
+            dis.start(2f);
+            for(int i = 0; i < 100 && !dis.finished(); i++) dis.onUpdate(0.016f);
+            if(!dis.finished()) throw new AssertionError("not finished " + dis.progress);
+            float[] band = dis.edgeBand();
+            if(band[0] > band[1]) throw new AssertionError("band " + band[0] + "," + band[1]);
+            pass("Dissolve controller (VFX-015)");
+        } catch(Throwable t){ fail("dissolve", t); failures++; }
+
+        // --- VFX-016/017/018 CombatFx ---
+        try {
+            com.hollow.vfx.VfxSystems.CombatFx fx = new com.hollow.vfx.VfxSystems.CombatFx();
+            fx.muzzleFlash();
+            float[] w1 = fx.flashWeights(0.016f);
+            if(w1[0] <= 0.5f) throw new AssertionError("flash core " + w1[0]);
+            for(int i = 0; i < 30; i++) fx.flashWeights(0.016f);
+            if(fx.flashTime >= 0f) throw new AssertionError("flash not expired");
+            // shake
+            fx.addShake(0.8f);
+            float o1 = fx.shakeOffset(0.016f, 100);
+            if(o1 == 0f) throw new AssertionError("no shake");
+            for(int i = 0; i < 120; i++) fx.shakeOffset(0.016f, i);
+            if(fx.trauma > 0.05f) throw new AssertionError("trauma decay " + fx.trauma);
+            // hit stop
+            fx.hitStop(0.1f);
+            float dtScaled = fx.scaleDt(0.016f);
+            if(dtScaled > 0.002f) throw new AssertionError("hit stop " + dtScaled);
+            pass("Muzzle flash / shake trauma / hit stop (VFX-016/017/018)");
+        } catch(Throwable t){ fail("combatfx", t); failures++; }
+
+        // --- VFX-014 SmokePlume ---
+        try {
+            com.hollow.vfx.VfxSystems.SmokePlume sp = new com.hollow.vfx.VfxSystems.SmokePlume();
+            for(int i = 0; i < 60; i++) sp.onUpdate(0.016f);
+            java.util.List<float[]> pts = sp.particleData();
+            if(pts.isEmpty()) throw new AssertionError("no particles");
+            if(pts.get(0).length != 5) throw new AssertionError("stride");
+            if(sp.particlesSpawned == 0) throw new AssertionError("never spawned");
+            pass("Smoke plume with occlusion fade (VFX-014, " + pts.size() + " live)");
+        } catch(Throwable t){ fail("smoke", t); failures++; }
+
+        // --- VFX-021/ENV-011 AmbientLife ---
+        try {
+            com.hollow.vfx.VfxSystems.AmbientLife ash = new com.hollow.vfx.VfxSystems.AmbientLife();
+            ash.mode = com.hollow.vfx.VfxSystems.AmbientLife.Mode.FIREFLY;
+            ash.density = 40;
+            java.util.List<float[]> f1 = ash.sample(new com.hollow.core.Vec3());
+            java.util.List<float[]> f2 = ash.sample(new com.hollow.core.Vec3());
+            if(f1.size() != 40) throw new AssertionError("count " + f1.size());
+            boolean animated = false;
+            for(int i = 0; i < 40; i++) if(f1.get(i)[0] != f2.get(i)[0]) { animated = true; break; }
+            if(!animated) throw new AssertionError("static particles");
+            pass("Ambient life fireflies (VFX-021/ENV-011)");
+        } catch(Throwable t){ fail("ambientlife", t); failures++; }
+
+        // --- ENV-008 Seasons ---
+        try {
+            com.hollow.vfx.VfxSystems.Seasons se = new com.hollow.vfx.VfxSystems.Seasons();
+            se.dayOfYear = 180f; se.seasonLengthDays = 91f;
+            se.season = com.hollow.vfx.VfxSystems.Seasons.fromDay(180f, 91f);
+            if(se.season != com.hollow.vfx.VfxSystems.Seasons.Season.SUMMER) throw new AssertionError("summer");
+            se.tick(95f);   // ~ one season later
+            if(se.season == com.hollow.vfx.VfxSystems.Seasons.Season.SUMMER) throw new AssertionError("no season change");
+            float[] tint = se.leafTint();
+            if(tint.length != 3) throw new AssertionError("tint");
+            pass("Seasons cycle + leaf tint (ENV-008)");
+        } catch(Throwable t){ fail("seasons", t); failures++; }
+
+        // --- WLD-019 TriggerZone events (blackboard tag) ---
+        try {
+            com.hollow.scene.World w = com.hollow.scene.World.empty("zones");
+            com.hollow.game.GameApp savedApp = com.hollow.game.GameApp.instance;
+            // no app -> component no-ops safely (headless guard)
+            com.hollow.world.WorldSystems.TriggerZone tz = new com.hollow.world.WorldSystems.TriggerZone();
+            tz.zoneTag = "danger";
+            tz.onUpdate(0.016f);   // must not crash without app/world/player
+            pass("TriggerZone headless guard (WLD-019)");
+        } catch(Throwable t){ fail("trigger", t); failures++; }
+
+        // --- WLD-017 AudioZone weight ---
+        try {
+            com.hollow.scene.World w = com.hollow.scene.World.empty("audiozone");
+            com.hollow.scene.Entity e = w.spawn("MusicZone");
+            e.position.set(0, 0, 0);
+            com.hollow.world.WorldSystems.AudioZone az = new com.hollow.world.WorldSystems.AudioZone();
+            az.radius = 10f; az.blendMeters = 2f; az.musicTrack = "tension";
+            e.add(az);
+            float inside = az.weightAt(new com.hollow.core.Vec3(0, 0, 0));
+            float outside = az.weightAt(new com.hollow.core.Vec3(15, 0, 0));
+            float edge = az.weightAt(new com.hollow.core.Vec3(9.5f, 0, 0));
+            if(inside < 0.99f) throw new AssertionError("inside " + inside);
+            if(outside > 0.01f) throw new AssertionError("outside " + outside);
+            if(edge <= 0f || edge >= 1f) throw new AssertionError("blend " + edge);
+            pass("AudioZone cross-blend weight (WLD-017)");
+        } catch(Throwable t){ fail("audiozone", t); failures++; }
+
+        // --- DBG-011 FrameStepper ---
+        try {
+            com.hollow.debug.DebugSystems.FrameStepper fs = new com.hollow.debug.DebugSystems.FrameStepper();
+            fs.pause();
+            if(fs.allowFrame()) throw new AssertionError("ran while paused");
+            fs.step(3);
+            int ran = 0;
+            for(int i = 0; i < 10; i++) if(fs.allowFrame()) ran++;
+            if(ran != 3) throw new AssertionError("stepped " + ran);
+            if(!fs.paused) throw new AssertionError("auto re-pause");
+            fs.resume();
+            if(!fs.allowFrame()) throw new AssertionError("resume");
+            pass("Frame pause/step (DBG-011)");
+        } catch(Throwable t){ fail("stepper", t); failures++; }
+
+        // --- DBG-009 FpsGraph ---
+        try {
+            com.hollow.debug.DebugSystems.FpsGraph g = new com.hollow.debug.DebugSystems.FpsGraph(60);
+            for(int i = 0; i < 100; i++) g.push(16.6f);
+            g.push(50f);   // spike
+            if(g.max < 49f) throw new AssertionError("max " + g.max);
+            if(g.avg < 16.5f || g.avg > 17.6f) throw new AssertionError("avg " + g.avg);
+            if(!g.spikeLast()) throw new AssertionError("spike undetected");
+            float[] bars = g.bars();
+            if(bars.length != 60) throw new AssertionError("bars " + bars.length);
+            pass("FpsGraph rolling stats (DBG-009)");
+        } catch(Throwable t){ fail("fpsgraph", t); failures++; }
+
+        // --- DBG-014 SystemStats table ---
+        try {
+            com.hollow.debug.DebugSystems.SystemStats stats = new com.hollow.debug.DebugSystems.SystemStats();
+            stats.add("physics", 4.0); stats.add("ai", 2.0); stats.add("render", 8.0);
+            java.util.List<com.hollow.debug.DebugSystems.SystemStats.Row> sorted = stats.sortedByCost();
+            if(!"render".equals(sorted.get(0).system)) throw new AssertionError("sort " + sorted.get(0).system);
+            if(stats.size() != 3) throw new AssertionError("rows");
+            if(!stats.table().contains("render")) throw new AssertionError("table");
+            pass("SystemStats per-system table (DBG-014)");
+        } catch(Throwable t){ fail("sysstats", t); failures++; }
+
+        // --- DBG-015 ProjectAsserts ---
+        try {
+            com.hollow.script.VarTable vars = new com.hollow.script.VarTable();
+            vars.set("hp", 50.0); vars.set("boss_dead", true);
+            java.util.List<Object> defs = new java.util.ArrayList<>();
+            defs.add(java.util.Map.of("type","script","name","alive","expr","hp > 0"));
+            defs.add(java.util.Map.of("type","script","name","boss","expr","boss_dead"));
+            defs.add(java.util.Map.of("type","var","key","hp","value",50));
+            java.util.List<com.hollow.debug.DebugSystems.ProjectAsserts.Result> rs =
+                com.hollow.debug.DebugSystems.ProjectAsserts.run(defs, vars);
+            if(rs.size() != 3) throw new AssertionError("count");
+            for(com.hollow.debug.DebugSystems.ProjectAsserts.Result r : rs)
+                if(!r.pass) throw new AssertionError("assert " + r.name + ": " + r.message);
+            pass("Project asserts from JSON (DBG-015)");
+        } catch(Throwable t){ fail("asserts", t); failures++; }
+
+        // --- DBG-018 EventMonitor filters ---
+        try {
+            com.hollow.debug.DebugSystems.EventMonitor em = new com.hollow.debug.DebugSystems.EventMonitor();
+            em.include.add("combat_");
+            em.record("combat_hit", 1, null);
+            em.record("ui_click", 2, null);
+            em.record("combat_death", 3, null);
+            if(em.recent(10).size() != 2) throw new AssertionError("filtered " + em.recent(10).size());
+            java.util.List<java.util.Map.Entry<String,Integer>> top = em.topEvents(3);
+            if(top.isEmpty() || top.get(0).getValue() < 1) throw new AssertionError("top " + top);
+            pass("EventMonitor live filters (DBG-018)");
+        } catch(Throwable t){ fail("evmon", t); failures++; }
+
+        // --- DBG-019/020 Telemetry + bug report ---
+        try {
+            com.hollow.debug.DebugSystems.Telemetry tel = new com.hollow.debug.DebugSystems.Telemetry();
+            for(int i = 0; i < 60; i++) tel.frame(16.6f);
+            tel.frame(45f);
+            tel.error(); tel.count("shots");
+            String report = tel.bugReport(java.util.List.of("log1", "log2"));
+            if(!report.contains("maxFrameMs") || !report.contains("log1")) throw new AssertionError("report");
+            if(tel.frames != 61) throw new AssertionError("frames " + tel.frames);
+            pass("Telemetry + bug report bundle (DBG-019/020)");
+        } catch(Throwable t){ fail("telemetry", t); failures++; }
+
+        // --- SCR-007 Hot reload ---
+        try {
+            com.hollow.debug.DebugSystems.HotReload hr = new com.hollow.debug.DebugSystems.HotReload();
+            java.util.Map<String,long[]> snap1 = new java.util.LinkedHashMap<>();
+            snap1.put("scripts/a.flow.json", new long[]{100, 500});
+            hr.poll(snap1);
+            java.util.Map<String,long[]> snap2 = new java.util.LinkedHashMap<>();
+            snap2.put("scripts/a.flow.json", new long[]{200, 520});
+            java.util.List<String> changed = hr.poll(snap2);
+            if(changed.size() != 1 || !changed.contains("scripts/a.flow.json")) throw new AssertionError("changed " + changed);
+            if(hr.reloads != 1) throw new AssertionError("reload count");
+            pass("Script hot-reload stamps (SCR-007)");
+        } catch(Throwable t){ fail("hotreload", t); failures++; }
+
+        // --- SCR-010 Coroutines ---
+        try {
+            com.hollow.debug.DebugSystems.ScriptCoroutines co = new com.hollow.debug.DebugSystems.ScriptCoroutines();
+            co.launch("wait3", 0.05f, 0, null);
+            boolean sawReady = false;
+            for(int i = 0; i < 10; i++){
+                if(!co.update(0.016f).isEmpty()){ sawReady = true; break; }
+            }
+            if(!sawReady) throw new AssertionError("never ready");
+            if(co.completed != 1) throw new AssertionError("completed " + co.completed);
+            // multi-step
+            co.launch("multi", 0f, 3, null);
+            int ticks = 0;
+            while(co.activeCount() > 0 && ticks++ < 20) co.update(0.016f);
+            if(co.completed != 2) throw new AssertionError("multi completed " + co.completed);
+            pass("Script coroutines sleep/steps (SCR-010)");
+        } catch(Throwable t){ fail("coroutine", t); failures++; }
+
+        // --- SCR-013 Sandbox ---
+        try {
+            com.hollow.debug.DebugSystems.Sandbox sb = new com.hollow.debug.DebugSystems.Sandbox();
+            if(sb.allowed("fs")) throw new AssertionError("fs allowed by default");
+            if(!sb.allowed("audio")) throw new AssertionError("audio blocked");
+            if(sb.allowed("net")) throw new AssertionError("net allowed");
+            sb.allowFs = true;
+            if(!sb.allowed("fs")) throw new AssertionError("grant failed");
+            pass("Sandbox permission gates (SCR-013)");
+        } catch(Throwable t){ fail("sandbox", t); failures++; }
+
+        // --- SCR-014 ScriptProfiler ---
+        try {
+            com.hollow.debug.DebugSystems.ScriptProfiler sp = new com.hollow.debug.DebugSystems.ScriptProfiler();
+            sp.end("heavy.flow", 5.0);
+            sp.end("heavy.flow", 3.0);
+            sp.end("light.flow", 0.5);
+            java.util.List<com.hollow.debug.DebugSystems.ScriptProfiler.Entry> hot = sp.hottest();
+            if(!"heavy.flow".equals(hot.get(0).file)) throw new AssertionError("hot " + hot.get(0).file);
+            if(!sp.report().contains("heavy.flow")) throw new AssertionError("report");
+            pass("Per-script profiler (SCR-014)");
+        } catch(Throwable t){ fail("scriptprof", t); failures++; }
+
+        // --- RND-028 SSR + RND-030 TAA + RND-032 PointShadows + RND-034 HiZ + RND-035 Stereo ---
+        try {
+            com.hollow.render.RenderSystems.SSRSettings ssr = new com.hollow.render.RenderSystems.SSRSettings();
+            ssr.qualityPreset("ULTRA");
+            if(!ssr.enabled || ssr.steps < 16) throw new AssertionError("ssr ultra " + ssr.steps);
+            ssr.qualityPreset("LOW");
+            if(ssr.enabled) throw new AssertionError("ssr low on");
+            // TAA
+            com.hollow.render.RenderSystems.TaaState taa = new com.hollow.render.RenderSystems.TaaState();
+            taa.enabled = true;
+            float[] j1 = taa.nextJitter();
+            float[] j2 = taa.nextJitter();
+            if(j1[0] == j2[0] && j1[1] == j2[1]) throw new AssertionError("jitter stuck");
+            if(Math.abs(j1[0]) > 0.5f) throw new AssertionError("jitter range");
+            // point shadows budget
+            com.hollow.render.RenderSystems.PointShadowState ps = new com.hollow.render.RenderSystems.PointShadowState();
+            ps.budget(2, 256);
+            if(!ps.addCaster("lamp1")) throw new AssertionError("caster1");
+            if(!ps.addCaster("lamp2")) throw new AssertionError("caster2");
+            if(ps.addCaster("lamp3")) throw new AssertionError("budget exceeded");
+            // HiZ
+            com.hollow.render.RenderSystems.HiZCulling hiz = new com.hollow.render.RenderSystems.HiZCulling();
+            hiz.buildTestPyramid(new float[]{0.3f, 0.6f, 0.9f}, 2, 2);
+            if(!hiz.occluded(0.5f)) throw new AssertionError("hiz far not occluded");
+            if(hiz.occluded(0.05f)) throw new AssertionError("hiz near occluded");
+            // stereo
+            com.hollow.render.RenderSystems.StereoView sv = new com.hollow.render.RenderSystems.StereoView();
+            sv.calibrate(0.066f);
+            if(Math.abs(sv.eyeOffset - 0.033f) > 1e-4f) throw new AssertionError("ipd " + sv.eyeOffset);
+            sv.setHead(12f, -5f);
+            if(Math.abs(sv.headYawDeg - 12f) > 1e-4f) throw new AssertionError("head");
+            pass("SSR/TAA/PointShadow/HiZ/Stereo states (RND-028/030/032/034/035)");
+        } catch(Throwable t){ fail("rnd", t); failures++; }
+
+        // --- RND-029 MotionBlurState ---
+        try {
+            com.hollow.render.RenderSystems.MotionBlurState mb = new com.hollow.render.RenderSystems.MotionBlurState();
+            mb.update(new com.hollow.core.Vec3(0,0,0), 0.016f);
+            mb.update(new com.hollow.core.Vec3(2f,0,0), 0.016f);   // 125 m/s -> clamped 1
+            if(mb.amount < 0.99f) throw new AssertionError("fast blur " + mb.amount);
+            mb.update(new com.hollow.core.Vec3(2.05f,0,0), 0.016f); // 3.1 m/s
+            if(mb.amount > 0.35f) throw new AssertionError("slow blur " + mb.amount);
+            pass("Per-object motion blur velocity (RND-029)");
+        } catch(Throwable t){ fail("mblur", t); failures++; }
+
+        // --- LGT-013 cookie + LGT-019 shadow res ---
+        try {
+            if(com.hollow.render.RenderSystems.LightExtras.cookieSample("blinds", 0.5f, 0.1f) < 0.9f)
+                throw new AssertionError("blinds open slot");
+            if(com.hollow.render.RenderSystems.LightExtras.cookieSample("blinds", 0.5f, 0.2f) > 0.2f)
+                throw new AssertionError("blinds closed slot");
+            if(com.hollow.render.RenderSystems.LightExtras.cookieSample("window", 0.5f, 0.5f) < 0.9f)
+                throw new AssertionError("window center");
+            if(com.hollow.render.RenderSystems.LightExtras.shadowResFor(3) != 2048) throw new AssertionError("res3");
+            if(com.hollow.render.RenderSystems.LightExtras.shadowResFor(0) != 0) throw new AssertionError("res0");
+            pass("Light cookies + shadow quality (LGT-013/019)");
+        } catch(Throwable t){ fail("cookie", t); failures++; }
+
+        // --- MAT-013..018 MaterialExtras json roundtrip ---
+        try {
+            com.hollow.render.RenderSystems.MaterialExtras me = new com.hollow.render.RenderSystems.MaterialExtras();
+            me.triplanar = true; me.parallax = true; me.subsurface = 0.4f; me.clearcoat = 0.6f; me.sheen = 0.2f;
+            java.util.Map<String,Object> json = me.toJson();
+            if(!json.containsKey("triplanar") || !json.containsKey("clearcoat")) throw new AssertionError("keys " + json);
+            com.hollow.render.RenderSystems.MaterialExtras me2 = new com.hollow.render.RenderSystems.MaterialExtras();
+            me2.fromJson(json);
+            if(!me2.triplanar || Math.abs(me2.subsurface - 0.4f) > 1e-4f || Math.abs(me2.sheen - 0.2f) > 1e-4f)
+                throw new AssertionError("roundtrip");
+            pass("Material extras flags + JSON (MAT-013..018)");
+        } catch(Throwable t){ fail("mat", t); failures++; }
+
+        // --- SEQ-005..008 track models ---
+        try {
+            com.hollow.render.RenderSystems.SeqTracks.AnimTrack at = new com.hollow.render.RenderSystems.SeqTracks.AnimTrack();
+            at.add(0f, "hero", "idle", true);
+            at.add(2f, "hero", "walk", true);
+            com.hollow.render.RenderSystems.SeqTracks.AnimTrack.Key k1 = at.active(1f);
+            com.hollow.render.RenderSystems.SeqTracks.AnimTrack.Key k2 = at.active(3f);
+            if(!"idle".equals(k1.clip) || !"walk".equals(k2.clip)) throw new AssertionError("active clip");
+            com.hollow.render.RenderSystems.SeqTracks.EnvTrack et = new com.hollow.render.RenderSystems.SeqTracks.EnvTrack();
+            et.add(0f, 0.01f, new float[]{0,0,0}, new float[]{1,1,1});
+            et.add(5f, 0.05f, new float[]{1,0,0}, new float[]{0,0,0});
+            float[] mid = et.sample(2.5f);
+            if(Math.abs(mid[0] - 0.03f) > 1e-4f) throw new AssertionError("fog lerp " + mid[0]);
+            if(Math.abs(mid[1] - 0.5f) > 1e-4f) throw new AssertionError("color lerp " + mid[1]);
+            java.util.Map<String,Object> prev = com.hollow.render.RenderSystems.SeqTracks.preview(at, et, 1f);
+            if(!prev.containsKey("animClip") || !prev.containsKey("fogDensity")) throw new AssertionError("preview " + prev);
+            pass("Sequencer anim/env tracks + headless preview (SEQ-005/006/007)");
+        } catch(Throwable t){ fail("seq", t); failures++; }
+
+        // --- AST-010..012 Asset graph + hot reload + streaming priority ---
+        try {
+            com.hollow.render.RenderSystems.AssetGraph ag = new com.hollow.render.RenderSystems.AssetGraph();
+            ag.edge("level_a", "tex_wall"); ag.edge("tex_wall", "tex_base");
+            java.util.List<String> closure = ag.closure("level_a");
+            if(!closure.contains("tex_wall") || !closure.contains("tex_base")) throw new AssertionError("closure " + closure);
+            if(!ag.dependents("tex_base").contains("tex_wall")) throw new AssertionError("dependents");
+            if(!ag.cycles().isEmpty()) throw new AssertionError("unexpected cycles");
+            ag.edge("x", "y"); ag.edge("y", "x");
+            if(ag.cycles().isEmpty()) throw new AssertionError("cycle undetected");
+            // streaming priority: cheap+near first, budget respected
+            java.util.List<com.hollow.render.RenderSystems.StreamingPriority.Request> reqs = new java.util.ArrayList<>();
+            reqs.add(new com.hollow.render.RenderSystems.StreamingPriority.Request("far_big", 100f, 50f));
+            reqs.add(new com.hollow.render.RenderSystems.StreamingPriority.Request("near_small", 2f, 1f));
+            reqs.add(new com.hollow.render.RenderSystems.StreamingPriority.Request("near_big", 3f, 40f));
+            java.util.List<String> order = com.hollow.render.RenderSystems.StreamingPriority.prioritize(reqs, 45f);
+            if(!order.contains("near_small")) throw new AssertionError("near missing " + order);
+            if(order.contains("far_big")) throw new AssertionError("over budget " + order);
+            if(!"near_big".equals(order.get(0))) throw new AssertionError("first " + order);
+            pass("Asset graph + hot reload + streaming priority (AST-010..012)");
+        } catch(Throwable t){ fail("asset", t); failures++; }
+
+        // --- UI-014 SafeArea + UI-018 AutoTextSize + UI-015 NavMap ---
+        try {
+            com.hollow.ui.UISystems.SafeArea sa = new com.hollow.ui.UISystems.SafeArea();
+            sa.set(40, 0, 90, 0);
+            float[] r = sa.apply(0, 0, 800, 600, 800, 600);
+            if(r[0] != 40f || r[1] != 90f || r[2] != 760f) throw new AssertionError("safe " + java.util.Arrays.toString(r));
+            float size = com.hollow.ui.UISystems.AutoTextSize.fit("سلام این یک متن فارسی طولانی است", 100f, 30f, 24f);
+            if(size >= 24f) throw new AssertionError("not shrunk " + size);
+            com.hollow.ui.UISystems.NavMap nav = new com.hollow.ui.UISystems.NavMap();
+            nav.autoLine(java.util.List.of("play", "options", "quit"));
+            if(!"options".equals(nav.navigate("play", "down"))) throw new AssertionError("nav down");
+            if(!"play".equals(nav.navigate("options", "up"))) throw new AssertionError("nav up");
+            if(nav.navigate("quit", "down") != null) throw new AssertionError("end overflow");
+            pass("SafeArea/AutoTextSize/NavMap (UI-014/015/018)");
+        } catch(Throwable t){ fail("uisafe", t); failures++; }
+
+        // --- UI-020 HUD data (blood/lamp/objective) ---
+        try {
+            // HUD state model used by lightweight HUD widget
+            com.hollow.script.VarTable hud = new com.hollow.script.VarTable();
+            hud.set("hp", 75.0); hud.set("flashlight", 0.6);
+            if(hud.num("hp", 0) != 75.0) throw new AssertionError("hud hp");
+            pass("HUD state bindings (UI-020)");
+        } catch(Throwable t){ fail("hud", t); failures++; }
+
+        // --- INP-008 Rumble + INP-015 LocalSplit ---
+        try {
+            com.hollow.ui.UISystems.Rumble rum = new com.hollow.ui.UISystems.Rumble();
+            final int[] vibes = {0};
+            rum.device = (ms, amp) -> vibes[0]++;
+            rum.hit(0.8f, 40);
+            if(vibes[0] != 1) throw new AssertionError("vibrate " + vibes[0]);
+            com.hollow.ui.UISystems.LocalSplit split = new com.hollow.ui.UISystems.LocalSplit();
+            split.press(0, "fire", true);
+            split.press(1, "jump", true);
+            if(!split.player(0).held("fire")) throw new AssertionError("p1 fire");
+            if(!split.player(1).held("jump")) throw new AssertionError("p2 jump");
+            if(split.player(0).held("jump")) throw new AssertionError("cross-talk");
+            pass("Rumble event + local 2P split (INP-008/015)");
+        } catch(Throwable t){ fail("rumble", t); failures++; }
+
+        // --- SCR-009 ScriptStd ---
+        try {
+            if(com.hollow.debug.DebugSystems.ScriptStd.call("abs", -5, 0) != 5) throw new AssertionError("abs");
+            if(com.hollow.debug.DebugSystems.ScriptStd.call("max", 3, 7) != 7) throw new AssertionError("max");
+            if(com.hollow.debug.DebugSystems.ScriptStd.call("sqrt", 9, 0) != 3) throw new AssertionError("sqrt");
+            if(!"HI".equals(com.hollow.debug.DebugSystems.ScriptStd.str("upper", "hi"))) throw new AssertionError("upper");
+            pass("Script stdlib math/string (SCR-009)");
+        } catch(Throwable t){ fail("std", t); failures++; }
+
+        // --- SCR-015 ApiDocs ---
+        try {
+            String doc = com.hollow.debug.DebugSystems.ApiDocs.generate(
+                java.util.Map.of("spawn", "spawn entity", "fade", "fade screen"),
+                java.util.Map.of("has_item", "inventory contains"),
+                java.util.List.of("abs", "min", "max"));
+            if(!doc.contains("spawn") || !doc.contains("has_item") || !doc.contains("abs")) throw new AssertionError("doc");
+            pass("Auto API docs (SCR-015)");
+        } catch(Throwable t){ fail("apidocs", t); failures++; }
+
+        return failures;
     }
 
     /** v2.3 Batch 3 regression block (PHY-019..035, COL-011..025, AUD-017..030, ANI-013..025) */

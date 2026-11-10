@@ -41,7 +41,7 @@ public final class InputActions {
     /** called by platform layer on raw button/zone events */
     public void setButton(String name, boolean down){
         Action a = actions.get(name);
-        if(a == null) return;
+        if(a == null){ a = new Action(); a.name = name; actions.put(name, a); }   // auto-define (v2.4: split/combos)
         if(down && !a.held){ a.pressed = true; a.held = true; a.heldTime = 0; }
         else if(!down && a.held){ a.released = true; a.held = false; }
         a.value = a.held ? 1f : 0f;

@@ -53,6 +53,35 @@
 > **ریگ چهره ۳۲ blendshape**، میکسر چندکلیپ (۳+ همزمان)، MultiChain IK اولویت‌دار،
 > Notify با payload سفارشی، **فنر استخوان** (حرکت ثانویه)، `hollow pose` دامپ JSON.
 > تست: `hollow selftest` — ۸۰+ تست (همه سبز).
+>
+> **v2.4** (`hollow-worlds`, Batch 4+5+6) —
+> **دنیا (WLD/ENV)**: چرخه روز/شب کامل متصل به آسمان/نور/مه با غروب طلایی و ستاره‌های شب،
+> باد سراسری با گست/تلاطم، پورتال‌های بین‌اتاقی با occlusion، پخش قطعی props
+> (ارتفاع/شیب/بایوم)، مرز دنیا با دیوار نرم، تریگرهای checkpoint با zone-tag،
+> منطقه صوتی با کراس‌بلند، آب‌وهوای ۵حالته (باران/برف/مه/طوفان) با خیس‌شدگی و
+> انباشت برف، فصل‌ها با رنگ برگ و دما، رعد/creak رخدادی، زندگی محیطی (کرم شب‌تاب/خاکستر).
+> **هوش مصنوعی**: کارگردان ترس (تنش/بودجه spawn)، حافظه دشمن + متر شک + تأخیر واکنش انسانی،
+> **GOAP planner (A*)**، Utility AI، Formation (V/خط/محاصره) با تخصیص حریصانه،
+> steering کامل (seek/flee/arrival/wander/alignment/cohesion/separation)،
+> درخت دیالوگ JSON فارسی، فاکشن‌ها، هماهنگی pincer/flank، کوری فلش‌لایت و شنوایی قدم.
+> **رندر**: SSR تنظیم‌پذیر، motion blur per-object سرعت‌محور، TAA با دنباله Halton،
+> سایه نقطه‌ای بودجه‌دار، Hi-Z occlusion، استریو VR (IPD/سر)، کوکی نور تحلیلی (کرکره/پنکه/پنجره)،
+> متریال triplanar/parallax/subsurface/clearcoat/sheen/matcap/displacement.
+> **UI/ورودی**: RTL کامل با اعداد فارسی، rich text، اسکرول اینرسی + لیست مجازی،
+> tween transform، safe-area ناچ، UI از JSON، تم قابل swap، نقشه ناوبری گیم‌پد،
+> combo detection، context maps، پروفایل ورودی ماندگار، replay ورودی، تریگر آنالوگ،
+> لرزش رخدادی، پخش لوکال ۲نفره.
+> **شبکه**: **UDP قابل‌اطمینان** (seq/ack/resend + dedup ترتیبی) روی سیم lossy،
+> delta snapshot، **client prediction + reconciliation**، interpolation موجودیت،
+> lobby با کد پیوستن + host migration، replay ضبط، صف ارسال backpressure، مانیتور،
+> stress تست ۳۲ کلاینت.
+> **سیو**: باینری LZ4+checksum، migration نسخه‌دار، autosave سیاست‌دار + اسلات چرخشی،
+> snapshot افزایشی، obfuscation ضد دستکاری.
+> **VFX/DBG/SCR**: خون/دمای محیط/دی‌سالو، muzzle flash سه‌فاز، screen shake با trauma²،
+> hit stop، دود با occlusion، پنل کنسول درون‌بازی، گراف FPS، توقف/قدم فریم،
+> جدول هزینه سیستم‌ها، assert پروژه‌ای، مانیتور رویداد، bug report، telemetry محلی،
+> hot reload اسکریپت، coroutine، sandbox مجوزها، profiler per-script، داکنگ خودکار API.
+> تست: `hollow selftest` — **۱۵۹ تست** (همه سبز).
 
 ---
 
@@ -71,9 +100,11 @@
 | `com.hollow.ui` | UI رتین‌مد: Panel/Label/Button/Image/Slider/Checkbox/ProgressBar/Toast، انکر لِی‌اوت، رویداد کلیک، **متن فارسی/عربی صحیح روی اندروید** (HarfBuzz خود اندروید) | UMG |
 | `com.hollow.vfx` | سیستم پارتیکل CPU: rate/burst/curves (اندازه/رنگ بر عمر)، gravity/drag، additive | Niagara (سبک) |
 | `com.hollow.script` | **FlowScript** — گراف رویداد→شرط→اقدام داده‌محور با ۳۰+ اکشن، زبان شرط مینی (`has_item()`, `dist_to() < 5`, `chance(0.3)`...)، EventBus با تاخیر قطعی | Blueprint (داده‌محور) |
-| `com.hollow.cine` | **Sequencer** — تایم‌لاین سینماتیک: دوربین/ترنسفورم/انیمیشن/صدا/رویداد/fade/caption با کلیدفریم | Sequencer |
+| `com.hollow.cine` | **Sequencer** — تایم‌لاین سینماتیک + تراک انیمیشن/محیط/اسپلاین دوربین (v2.4) | Sequencer |
 | `com.hollow.game` | GameApp، Bootstrap، InputActions (مپینگ JSON)، SaveSystem (اسلات)، Localization با RTL، GameConfig | GameMode/Enhanced Input/SaveGame |
-| `com.hollow.net` | NetMessage/TcpChannel (قاب length-prefix) — اسکلت شبکه | Networking (فاز ۲) |
+| `com.hollow.world` | **v2.4**: DayNightCycle، GlobalWind، Portal/PortalSystem، WaterDomain (جزر/مد)، TriggerZone، AudioZone، WorldBounds، scatter قطعی | World/Level streaming |
+| `com.hollow.debug` | **v2.4**: ConsolePanel، FpsGraph، FrameStepper، SystemStats، ProjectAsserts، EventMonitor، Telemetry، HotReload، Coroutine، Sandbox، ScriptProfiler | DevTools |
+| `com.hollow.net` | TcpChannel + **UdpLink قابل‌اطمینان** (seq/ack/resend)، DeltaSnapshot، Prediction/Reconcile، EntityInterp، Lobby کددار، SendQueue، Monitor | Networking |
 | `runtime-android` | EngineActivity + GLSurfaceView ES3 + ورودی لمسی دو-منطقه‌ای (استیک مجازی+نگاه)، AudioTrack، BitmapFactory، **متن با شکل‌دهی صحیح**، OGG با MediaCodec | Platform Android |
 
 ## گردش‌کار خط فرمان

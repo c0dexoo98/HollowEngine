@@ -113,6 +113,21 @@ public final class EngineBootstrap {
         w.componentRegistry.put("FootPlant", com.hollow.physics.FootPlant::new);
         w.componentRegistry.put("FacialRig", com.hollow.anim.AnimationV23.FacialRig::new);
         w.componentRegistry.put("BoneSpringRig", com.hollow.anim.AnimationV23.BoneSpringRig::new);
+        // v2.4 components (world/AI/UI/VFX)
+        w.componentRegistry.put("DayNightCycle", com.hollow.world.DayNightCycle::new);
+        w.componentRegistry.put("WaterDomain", com.hollow.world.WorldSystems.WaterDomain::new);
+        w.componentRegistry.put("Portal", com.hollow.world.WorldSystems.Portal::new);
+        w.componentRegistry.put("GlobalWind", com.hollow.world.WorldSystems.GlobalWind::new);
+        w.componentRegistry.put("WorldBounds", com.hollow.world.WorldSystems.WorldBounds::new);
+        w.componentRegistry.put("TriggerZone", com.hollow.world.WorldSystems.TriggerZone::new);
+        w.componentRegistry.put("AudioZone", com.hollow.world.WorldSystems.AudioZone::new);
+        w.componentRegistry.put("EnemyBrain", com.hollow.ai.AISystems.EnemyBrain::new);
+        w.componentRegistry.put("Weather", com.hollow.vfx.VfxSystems.Weather::new);
+        w.componentRegistry.put("AmbientEvents", com.hollow.vfx.VfxSystems.AmbientEvents::new);
+        w.componentRegistry.put("SmokePlume", com.hollow.vfx.VfxSystems.SmokePlume::new);
+        w.componentRegistry.put("Dissolve", com.hollow.vfx.VfxSystems.Dissolve::new);
+        w.componentRegistry.put("AmbientLife", com.hollow.vfx.VfxSystems.AmbientLife::new);
+        w.componentRegistry.put("Seasons", com.hollow.vfx.VfxSystems.Seasons::new);
     }
 
     /** after a world loads: physics statics, agent setup, script start events */
