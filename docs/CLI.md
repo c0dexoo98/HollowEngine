@@ -124,3 +124,29 @@ mem
 actor list
 engine stop
 ```
+
+## فرمان‌های v2.5
+
+```bash
+# توزیع (EXT)
+hollow export itch -p mygame [--apk dist/app.apk]   # بسته itch.io + قالب صفحه
+hollow export ci -p mygame                          # قالب GitHub Actions
+hollow export blender [--out tools/blender]         # افزونه خروجی .hvm برای Blender
+hollow export jar                                   # بسته single-jar در dist/hollow.jar
+
+# اسکریپت (SCR/EXT-008)
+hollow lint scripts/demo.flow.json --strict         # lint با کدهای خطا
+hollow lsp                                          # سرور LSP روی stdio (VSCode)
+hollow debug scripts/demo.flow.json --bp 3 --step   # دیباگر breakpoint/step
+```
+
+دیباگر اسکریپت خروجی نمونه:
+
+```
+$ hollow debug scripts/demo.flow.json --bp 2
+script: scripts/demo.flow.json steps=7 dbg[script=scripts/demo.flow.json step=-1 RUN bps=1 hits=0]
+  0 run  {"do":"set_var","key":"hp","value":10}
+  1 run  {"do":"add_var","key":"hp","delta":-3}
+  2 BREAK {"do":"emit","event":"low_hp"}
+dbg[script=scripts/demo.flow.json step=2 BREAK bps=1 hits=1]
+```

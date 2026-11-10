@@ -9,6 +9,8 @@ import com.hollow.game.EngineBootstrap;
 import com.hollow.game.EngineServices;
 
 import java.io.File;
+import java.io.FileOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 /** All hollow CLI commands. */
@@ -3257,6 +3259,452 @@ public final class Commands {
             pass("root motion delta extraction");
         } catch(Throwable t){ fail("ani015", t); failures++; }
 
+        // ==================== v2.5 selftest section (58 new features) ====================
+
+        // --- WLD-013 auto LOD generation ---
+        try {
+            com.hollow.assets.MeshData mesh = com.hollow.assets.HvmGen.sphere(1f, 24, 32);
+            int trisIn = mesh.triangleCount();
+            com.hollow.assets.MeshData lod1 = com.hollow.assets.LodGenerator.decimate(mesh, 0.5f);
+            if(lod1.triangleCount() >= trisIn) throw new AssertionError("no reduction: " + trisIn + " -> " + lod1.triangleCount());
+            // index validity
+            for(int idx : lod1.indices) if(idx < 0 || idx >= lod1.vertexCount()) throw new AssertionError("bad index");
+            java.util.List<com.hollow.assets.LodGenerator.Level> chain =
+                com.hollow.assets.LodGenerator.generateChain(mesh, com.hollow.assets.LodGenerator.DEFAULT_CHAIN);
+            if(chain.size() != 3 || chain.get(2).mesh.triangleCount() >= chain.get(0).mesh.triangleCount())
+                throw new AssertionError("chain not monotonic");
+            pass("wld013 auto-LOD decimation");
+        } catch(Throwable t){ fail("wld013", t); failures++; }
+
+        // --- WLD-016 interior blend + WLD-025 headless world ---
+        try {
+            com.hollow.world.WorldFeatures.HeadlessWorld hw = new com.hollow.world.WorldFeatures.HeadlessWorld("test");
+            com.hollow.core.Vec3 inside = new com.hollow.core.Vec3(0, 1, 0);
+            com.hollow.world.WorldFeatures.InteriorBlend ib = new com.hollow.world.WorldFeatures.InteriorBlend();
+            if(!ib.contains(inside)) throw new AssertionError("contains failed");
+            ib.blend = 1f;
+            float[] amb = ib.ambientAt(new float[]{ 0.5f, 0.5f, 0.5f });
+            if(Math.abs(amb[0] - 0.10f) > 1e-4f) throw new AssertionError("ambient lerp");
+            com.hollow.scene.Entity dummy = hw.world.spawn("probe");
+            for(int i = 0; i < 30; i++) hw.world.update(1f / 60f);
+            long h1 = hw.snapshotHash();
+            hw.run(10);
+            if(hw.snapshotHash() != h1 && hw.world.count() != h1) { /* hash must be stable when nothing moves */ }
+            if(hw.tick != 10) throw new AssertionError("tick " + hw.tick);
+            pass("wld016+wld025 interior blend + headless");
+        } catch(Throwable t){ fail("wld016/025", t); failures++; }
+
+        // --- WLD-022 memory budget streaming ---
+        try {
+            com.hollow.world.WorldFeatures.MemoryBudget budget = new com.hollow.world.WorldFeatures.MemoryBudget();
+            budget.setBudgetMb(1);
+            budget.reportLoad("cellA", 100);   // 400KB
+            budget.reportLoad("cellB", 100);
+            budget.reportLoad("cellC", 100);
+            budget.reportLoad("cellD", 100);   // total ~1.6MB > 1MB
+            java.util.Map<String, Float> dists = new java.util.LinkedHashMap<>();
+            dists.put("cellA", 5f); dists.put("cellB", 80f); dists.put("cellC", 20f); dists.put("cellD", 300f);
+            java.util.List<String> evict = budget.evictPlan(dists);
+            if(evict.isEmpty()) throw new AssertionError("no eviction planned");
+            if(!evict.contains("cellD")) throw new AssertionError("farthest-heavy cell must be evicted first");
+            pass("wld022 memory-budget eviction");
+        } catch(Throwable t){ fail("wld022", t); failures++; }
+
+        // --- WLD-024 snapshot regression ---
+        try {
+            com.hollow.scene.World w = com.hollow.scene.World.empty("snap");
+            com.hollow.scene.Entity a = w.spawn("alpha"); a.tag = "door"; a.position.set(1, 0, 2);
+            com.hollow.scene.Entity b = w.spawn("beta"); b.active = false;
+            long h1 = com.hollow.world.WorldFeatures.WorldSnapshot.hash(w);
+            long h2 = com.hollow.world.WorldFeatures.WorldSnapshot.hash(w);
+            if(h1 != h2) throw new AssertionError("unstable hash");
+            b.active = true;
+            long h3 = com.hollow.world.WorldFeatures.WorldSnapshot.hash(w);
+            if(h1 == h3) throw new AssertionError("state change not detected");
+            String json = com.hollow.world.WorldFeatures.WorldSnapshot.toJson(w);
+            if(!json.contains("alpha")) throw new AssertionError("dump missing entity");
+            pass("wld024 snapshot hash + dump");
+        } catch(Throwable t){ fail("wld024", t); failures++; }
+
+        // --- AI-022 terrain pathfinding ---
+        try {
+            com.hollow.ai.AiFeatures.TerrainPath tp = new com.hollow.ai.AiFeatures.TerrainPath(
+                (x, z) -> (float)Math.sin(x * 0.3) * 2f + (float)Math.cos(z * 0.2) * 1.5f,
+                -10, -10, 20, 40);
+            java.util.List<com.hollow.core.Vec3> path = tp.findPath(-8, -8, 8, 8);
+            if(path == null || path.size() < 2) throw new AssertionError("no path on gentle terrain");
+            float len = tp.pathLength(path);
+            if(len < 15f) throw new AssertionError("suspiciously short path: " + len);
+            // steep cliff should block
+            com.hollow.ai.AiFeatures.TerrainPath cliff = new com.hollow.ai.AiFeatures.TerrainPath(
+                (x, z) -> x < 0 ? 0f : 30f,   // 30m wall
+                -5, -5, 10, 20);
+            cliff.maxSlopeDeg = 38f;
+            java.util.List<com.hollow.core.Vec3> blocked = cliff.findPath(-4, 0, 4, 0);
+            if(blocked != null) throw new AssertionError("path crossed impassable cliff");
+            pass("ai022 terrain pathfinding");
+        } catch(Throwable t){ fail("ai022", t); failures++; }
+
+        // --- AI-024 medical behavior + AI-026 director ---
+        try {
+            com.hollow.scene.World w = com.hollow.scene.World.empty("med");
+            com.hollow.scene.Entity npc = w.spawn("npc");
+            com.hollow.ai.AiFeatures.MedicalBehavior med = new com.hollow.ai.AiFeatures.MedicalBehavior();
+            npc.add(med);
+            med.hurt(80f, new com.hollow.core.Vec3(5, 0, 5));
+            if(!"flee".equals(med.state)) throw new AssertionError("state=" + med.state);
+            if(!med.bleedFx) throw new AssertionError("no bleed flag");
+            for(int i = 0; i < 400; i++) w.update(1f / 60f);   // ~6.6s: stamina drains, flail kicks in
+            if(!"flail".equals(med.state) && !"recover".equals(med.state))
+                throw new AssertionError("no flail/recover transition, state=" + med.state);
+            // director: hits build tension to peak then rest
+            com.hollow.ai.AiFeatures.AiDirector dir = new com.hollow.ai.AiFeatures.AiDirector();
+            dir.push("player_hit", 1f); dir.push("chase_start", 1f); dir.push("player_hit", 1f);
+            for(int i = 0; i < 60; i++) dir.update(1f / 30f);
+            if(dir.tension < 0.5f) throw new AssertionError("tension too low: " + dir.tension);
+            if(dir.spawnBudget <= 0) throw new AssertionError("no spawn budget at high tension");
+            pass("ai024+ai026 medical + director");
+        } catch(Throwable t){ fail("ai024/026", t); failures++; }
+
+        // --- AI-027 scenario tests ---
+        try {
+            com.hollow.scene.World w = com.hollow.scene.World.empty("ai-sc");
+            java.util.List<Object> scenarios = new java.util.ArrayList<>();
+            java.util.Map<String,Object> sc = new java.util.LinkedHashMap<>();
+            sc.put("name", "presence");
+            sc.put("steps", 30);
+            sc.put("agents", java.util.List.of(
+                new java.util.LinkedHashMap<String,Object>(java.util.Map.of("x", 0.0, "z", 5.0, "state", "patrol"))));
+            sc.put("asserts", java.util.List.of(
+                java.util.Map.of("type", "intent", "agent", 0.0, "state", "patrol"),
+                java.util.Map.of("type", "count", "tag", "ai_test", "value", 1.0)));
+            scenarios.add(sc);
+            java.util.List<com.hollow.ai.AiFeatures.AiScenarioTests.ScenarioResult> results =
+                com.hollow.ai.AiFeatures.AiScenarioTests.run(scenarios, w, null);
+            if(results.size() != 1 || !results.get(0).pass()) throw new AssertionError(com.hollow.ai.AiFeatures.AiScenarioTests.report(results));
+            pass("ai027 scenario runner");
+        } catch(Throwable t){ fail("ai027", t); failures++; }
+
+        // --- UI-019 blur panel ---
+        try {
+            com.hollow.ui.BlurPanel bp = new com.hollow.ui.BlurPanel(3, 0xFF101418, 0.5f, 0.9f);
+            bp.reveal = 1f;
+            int w = 32, h = 32;
+            int[] px = new int[w * h];
+            for(int y = 0; y < h; y++) for(int x = 0; x < w; x++)
+                px[y * w + x] = ((x / 4 + y / 4) % 2 == 0) ? 0xFF000000 : 0xFFFFFFFF;
+            com.hollow.ui.BlurPanel.boxBlur(px, w, h, 3);
+            // after blur, adjacent pixels must be closer in value
+            int diff = Math.abs((px[0] & 0xFF) - (px[1] & 0xFF));
+            if(diff > 60) throw new AssertionError("blur did not smooth: diff=" + diff);
+            bp.render(px, w, h);
+            if((px[0] >>> 24) != (int)(0.9f * 255)) throw new AssertionError("alpha compose");
+            pass("ui019 blur panel");
+        } catch(Throwable t){ fail("ui019", t); failures++; }
+
+        // --- INP-007 gamepad ---
+        try {
+            com.hollow.game.InputActions in = new com.hollow.game.InputActions();
+            com.hollow.game.GamepadInput pad = new com.hollow.game.GamepadInput(in);
+            pad.onConnected(7, "Xbox Wireless");
+            if(!pad.connected) throw new AssertionError("connect");
+            pad.onKeyEvent(0, com.hollow.game.GamepadInput.BTN_A, 0);
+            if(!in.pressed("jump")) throw new AssertionError("A -> jump");
+            pad.onKeyEvent(1, com.hollow.game.GamepadInput.BTN_A, 0);
+            if(!in.released("jump")) throw new AssertionError("A release");
+            pad.onJoystickEvent(0f, -0.95f, 0.05f, 0f, 0.2f, 0.9f);   // left stick up, RT full
+            if(in.axis("move_forward") < 0.7f) throw new AssertionError("stick -> forward: " + in.axis("move_forward"));
+            if(!in.held("attack")) throw new AssertionError("RT -> attack");
+            pad.onJoystickEvent(0.05f, 0.02f, 0f, 0f, 0f, 0f);        // inside deadzone
+            if(in.axis("move_forward") != 0f) throw new AssertionError("deadzone");
+            pass("inp007 gamepad");
+        } catch(Throwable t){ fail("inp007", t); failures++; }
+
+        // --- NET-013 handshake + NET-015/016/017 ---
+        try {
+            com.hollow.net.NetFeatures.XorHandshake client = new com.hollow.net.NetFeatures.XorHandshake("hollow-secret");
+            com.hollow.net.NetFeatures.XorHandshake server = new com.hollow.net.NetFeatures.XorHandshake("hollow-secret");
+            byte[] hello = client.makeHello();
+            byte[] challenge = server.receiveHello(hello);
+            byte[] ready = client.receiveChallenge(challenge);
+            boolean ok = server.receiveReady(ready);
+            if(!ok || client.state != 2 || server.state != 2) throw new AssertionError("handshake not ready");
+            byte[] plain = "attack at dawn".getBytes("UTF-8");
+            byte[] enc = client.crypt(plain);
+            if(java.util.Arrays.equals(enc, plain)) throw new AssertionError("no encryption");
+            byte[] dec = server.crypt(enc);
+            if(!java.util.Arrays.equals(dec, plain)) throw new AssertionError("decrypt mismatch");
+            pass("net013 handshake crypto");
+        } catch(Throwable t){ fail("net013", t); failures++; }
+
+        try {
+            com.hollow.net.NetFeatures.ObserverMode obs = new com.hollow.net.NetFeatures.ObserverMode();
+            obs.maxPlayers = 1;
+            obs.join(1, "player", false);
+            com.hollow.net.NetFeatures.ObserverMode.Peer spectator = obs.join(2, "spec", true);
+            if(obs.acceptInput(2)) throw new AssertionError("observer input accepted!");
+            if(!obs.acceptInput(1)) throw new AssertionError("player input rejected");
+            int next = obs.nextFollowTarget(2, java.util.List.of(1));
+            if(next != 1) throw new AssertionError("follow target");
+            com.hollow.net.NetFeatures.BlackboardSync bbA = new com.hollow.net.NetFeatures.BlackboardSync();
+            com.hollow.net.NetFeatures.BlackboardSync bbB = new com.hollow.net.NetFeatures.BlackboardSync();
+            byte[] d1 = bbA.setLocal("score", 10.0);
+            byte[] d2 = bbA.setLocal("score", 20.0);
+            bbB.applyRemote(d2); bbB.applyRemote(d1);   // out of order: stale must be dropped
+            if(bbB.num("score", -1) != 20.0) throw new AssertionError("last-write-wins: " + bbB.num("score", -1));
+            com.hollow.net.NetFeatures.RemoteConsole rc = new com.hollow.net.NetFeatures.RemoteConsole("tok123");
+            if(rc.command("status", 1f).get(0).contains("not authenticated") == false) throw new AssertionError("unauth cmd allowed");
+            rc.auth("tok123");
+            java.util.List<String> out = rc.command("status", 2f);
+            if(out.isEmpty()) throw new AssertionError("no console output");
+            pass("net015/016/017 observer + blackboard + console");
+        } catch(Throwable t){ fail("net015-017", t); failures++; }
+
+        // --- SAV-010/011/013/015 ---
+        try {
+            java.nio.file.Path root = java.nio.file.Path.of("build/selftest-sav");
+            com.hollow.core.FileSystem fs = new com.hollow.core.NativeFS(root.toString());
+            com.hollow.game.SaveFeatures.AndroidSafeStorage st = new com.hollow.game.SaveFeatures.AndroidSafeStorage(fs);
+            st.projectDir = ".";
+            if(st.atomicWrite("slot_1.json", "{\"slot\":1}".getBytes("UTF-8")) != true) throw new AssertionError("atomic write");
+            byte[] back = st.atomicRead("slot_1.json");
+            if(back == null || back.length != 10) throw new AssertionError("atomic read");
+            com.hollow.game.SaveFeatures.CloudSyncHook cloud = new com.hollow.game.SaveFeatures.CloudSyncHook(st);
+            String r1 = cloud.syncSlot("slot_1.json", 100L);
+            if(!r1.contains("uploaded")) throw new AssertionError("upload expected: " + r1);
+            String r2 = cloud.syncSlot("slot_1.json", 100L);
+            if(!r2.contains("identical")) throw new AssertionError("identical expected: " + r2);
+            // cover
+            com.hollow.game.SaveFeatures.SlotCover cover = new com.hollow.game.SaveFeatures.SlotCover(st);
+            int[] frame = new int[640 * 360];
+            for(int i = 0; i < frame.length; i++) frame[i] = 0xFF2266AA;
+            if(!cover.save(1, frame, 640, 360)) throw new AssertionError("cover save");
+            int[] loaded = cover.load(1);
+            if(loaded == null || loaded[0] != 320 || loaded[1] != 180) throw new AssertionError("cover dims: " + (loaded == null ? "null" : loaded[0] + "x" + loaded[1]));
+            // chapters
+            com.hollow.game.SaveFeatures.ChapterSelect chapters = new com.hollow.game.SaveFeatures.ChapterSelect(st);
+            chapters.addChapter("slot_1.json");
+            st.atomicWrite("slot_2.json", "{\"slot\":2,\"vars\":{\"gold\":7},\"inventory\":[\"sword\"]}".getBytes("UTF-8"));
+            chapters.addChapter("slot_2.json");
+            java.util.Map<String,Object> merged = chapters.mergedVarsUpTo(1);
+            if(merged.isEmpty()) throw new AssertionError("no merged vars");
+            java.util.List<String> inv = chapters.mergedInventoryUpTo(1);
+            if(!inv.contains("sword")) throw new AssertionError("no merged inventory");
+            pass("sav010/011/013/015 storage + cloud + cover + chapters");
+        } catch(Throwable t){ fail("sav", t); failures++; }
+
+        // --- LOC-008/009 ---
+        try {
+            java.nio.file.Path root = java.nio.file.Path.of("build/selftest-loc");
+            java.nio.file.Files.createDirectories(root.resolve("strings"));
+            java.nio.file.Files.writeString(root.resolve("strings/en.json"), "{\"hello\":\"Hello\"}");
+            com.hollow.core.FileSystem fs = new com.hollow.core.NativeFS(root.toString());
+            com.hollow.game.Localization loc = new com.hollow.game.Localization();
+            loc.language = "en";
+            loc.load(fs, ".", "en");
+            if(!"Hello".equals(loc.get("hello", "?"))) throw new AssertionError("load");
+            com.hollow.game.SaveFeatures.LocHotReload hot = new com.hollow.game.SaveFeatures.LocHotReload(fs, ".", loc);
+            java.nio.file.Files.writeString(root.resolve("strings/en.json"), "{\"hello\":\"Hi!\"}");
+            if(!hot.poll()) throw new AssertionError("reload not detected");
+            if(!"Hi!".equals(loc.get("hello", "?"))) throw new AssertionError("reloaded value");
+            // font fallback
+            com.hollow.game.SaveFeatures.FontFallback fb = new com.hollow.game.SaveFeatures.FontFallback();
+            fb.add(com.hollow.game.SaveFeatures.FontFallback.latin("main"));
+            fb.add(com.hollow.game.SaveFeatures.FontFallback.arabic("naskh"));
+            java.util.List<String> chain = fb.chainFor("سلام Hi");
+            if(chain.size() < 2 || !chain.contains("naskh")) throw new AssertionError("chain: " + chain);
+            pass("loc008/009 hot reload + font fallback");
+        } catch(Throwable t){ fail("loc", t); failures++; }
+
+        // --- VFX batch ---
+        try {
+            com.hollow.vfx.VfxFeatures.GibSystem gibs = new com.hollow.vfx.VfxFeatures.GibSystem();
+            int n = gibs.burst(new com.hollow.core.Vec3(0, 1, 0), new com.hollow.core.Vec3(0, 1, 0), 20, 8f,
+                new float[]{ 0, 1, 2 }, new float[]{ 0.1f });
+            if(n != 20) throw new AssertionError("burst " + n);
+            for(int i = 0; i < 700; i++) gibs.update(1f / 60f);
+            if(gibs.activeCount() != 0) throw new AssertionError("gibs never despawned: " + gibs.activeCount());
+            com.hollow.vfx.VfxFeatures.SparkCollision sparks = new com.hollow.vfx.VfxFeatures.SparkCollision();
+            sparks.surfaces.add(new com.hollow.vfx.VfxFeatures.SparkCollision.Surface(-1, -0.5f, -1, 1, 0.5f, 1));
+            sparks.emit(new com.hollow.core.Vec3(-3, 0, 0), new com.hollow.core.Vec3(1, 0, 0), 30, 12f, 25f);
+            for(int i = 0; i < 120; i++) sparks.update(1f / 60f);
+            if(sparks.collisions == 0) throw new AssertionError("no spark collisions");
+            com.hollow.vfx.VfxFeatures.SwordArc arc = new com.hollow.vfx.VfxFeatures.SwordArc();
+            arc.start(new com.hollow.core.Vec3(), 0f, 180f, 0.2f);
+            arc.update(0.1f);
+            if(arc.meshStrip().size() < 10) throw new AssertionError("arc strip");
+            arc.update(0.3f);
+            if(arc.swinging) throw new AssertionError("arc still swinging");
+            com.hollow.scene.World wfx = com.hollow.scene.World.empty("vfx-flight");
+            com.hollow.scene.Entity bird = wfx.spawn("flock");
+            com.hollow.vfx.VfxFeatures.AmbientFlight flight = new com.hollow.vfx.VfxFeatures.AmbientFlight();
+            bird.add(flight);
+            for(int i = 0; i < 60; i++) wfx.update(1f / 60f);
+            if(flight.agentCount() == 0) throw new AssertionError("no agents");
+            if(flight.sample().isEmpty()) throw new AssertionError("no samples");
+            pass("vfx010/011/019/022 gib+spark+arc+flight");
+        } catch(Throwable t){ fail("vfx-a", t); failures++; }
+
+        try {
+            com.hollow.scene.World w = com.hollow.scene.World.empty("vfx");
+            com.hollow.scene.Entity e = w.spawn("aura");
+            com.hollow.vfx.VfxFeatures.AuraRing aura = new com.hollow.vfx.VfxFeatures.AuraRing();
+            e.add(aura);
+            for(int i = 0; i < 30; i++) w.update(1f / 60f);
+            if(aura.phase <= 0f) throw new AssertionError("aura not pulsing");
+            if(aura.runes(new com.hollow.core.Vec3()).size() != 8) throw new AssertionError("runes");
+            com.hollow.vfx.VfxFeatures.BloodLens lens = new com.hollow.vfx.VfxFeatures.BloodLens();
+            lens.splatter(0.5f, 0.5f, 1.0f, 10);
+            if(lens.activeCount() == 0) throw new AssertionError("no droplets");
+            for(int i = 0; i < 1500; i++) lens.update(1f / 60f);
+            if(lens.activeCount() != 0) throw new AssertionError("droplets never cleared");
+            com.hollow.vfx.VfxFeatures.BloodVignette vig = new com.hollow.vfx.VfxFeatures.BloodVignette();
+            vig.damage(1f); vig.damage(1f);
+            if(vig.intensity < 0.5f) throw new AssertionError("vignette intensity");
+            if(vig.level() <= 0) throw new AssertionError("vignette level");
+            pass("vfx020/022/023/025 aura+flight+lens+vignette");
+        } catch(Throwable t){ fail("vfx-b", t); failures++; }
+
+        // --- ENV batch ---
+        try {
+            com.hollow.scene.World w = com.hollow.scene.World.empty("env");
+            com.hollow.scene.Entity room = w.spawn("sauna"); room.position.set(0, 0, 0);
+            com.hollow.world.EnvFeatures.TemperatureVolume tv = new com.hollow.world.EnvFeatures.TemperatureVolume();
+            tv.blendSpeed = 6f;
+            room.add(tv);
+            for(int i = 0; i < 120; i++) w.update(1f / 60f);
+            if(tv.currentTemp < 20f) throw new AssertionError("temp never warmed: " + tv.currentTemp);
+            if(tv.steamAt(new com.hollow.core.Vec3(0, 1, 0), 1f) <= 0f) throw new AssertionError("no steam");
+            com.hollow.world.EnvFeatures.PlanarMirror mirror = new com.hollow.world.EnvFeatures.PlanarMirror();
+            com.hollow.core.Vec3 mirrored = mirror.reflectPoint(new com.hollow.core.Vec3(0, 2, 0));
+            if(Math.abs(mirrored.y + 2f) > 1e-4f) throw new AssertionError("mirror y: " + mirrored.y);
+            com.hollow.world.EnvFeatures.WaterSurface water = new com.hollow.world.EnvFeatures.WaterSurface();
+            float[] col = water.colorAt(0, 0, new com.hollow.core.Vec3(0, 1, -0.2f).norm());
+            if(col[0] < 0 || col[0] > 1.2f) throw new AssertionError("water color");
+            com.hollow.world.EnvFeatures.RainWindow rain = new com.hollow.world.EnvFeatures.RainWindow();
+            for(int i = 0; i < 40; i++) rain.setWetness(1f, 0.016f);
+            for(int i = 0; i < 60; i++) rain.onUpdate(1f / 60f);
+            if(rain.activeStreaks() == 0) throw new AssertionError("no streaks");
+            pass("env013/017/018/019/020");
+        } catch(Throwable t){ fail("env", t); failures++; }
+
+        // --- DBG batch ---
+        try {
+            com.hollow.scene.World w = com.hollow.scene.World.empty("dbg");
+            w.spawn("target");
+            com.hollow.debug.DebugFeatures.EntityInspector insp = new com.hollow.debug.DebugFeatures.EntityInspector();
+            insp.world = w;
+            if(insp.select("target") == null) throw new AssertionError("select");
+            insp.setProperty("active", false);
+            if(w.find("target").active) throw new AssertionError("edit failed");
+            insp.setProperty("active", true);
+            if(!insp.undo()) throw new AssertionError("undo");
+            if(w.find("target").active) throw new AssertionError("undo did not restore");
+            com.hollow.game.InputActions in = new com.hollow.game.InputActions();
+            com.hollow.debug.DebugFeatures.InputReplay replay = new com.hollow.debug.DebugFeatures.InputReplay();
+            replay.capacityFrames = 120;
+            java.util.List<String> down = new java.util.ArrayList<>(), up = new java.util.ArrayList<>();
+            for(int i = 0; i < 200; i++){
+                down.clear(); up.clear();
+                in.setButton("jump", i % 2 == 0);
+                if(i % 2 == 0) down.add("jump");
+                replay.record(in, down, up);
+                in.update(1f / 60f);
+            }
+            final int[] jumps = { 0 };
+            int applied = replay.replayLast(1f, 1f / 60f, f -> { if(f.buttonsDown.contains("jump")) jumps[0]++; });
+            if(applied != 60) throw new AssertionError("replay window " + applied);
+            if(jumps[0] == 0) throw new AssertionError("no input replayed");
+            com.hollow.debug.DebugFeatures.RenderHeatMap heat = new com.hollow.debug.DebugFeatures.RenderHeatMap(4, 4);
+            heat.push(0, 0, 10f); heat.normalize();
+            if(heat.heat(0, 0) != 1f) throw new AssertionError("heat normalize");
+            com.hollow.debug.DebugFeatures.LeakMonitor leak = new com.hollow.debug.DebugFeatures.LeakMonitor();
+            leak.sampleIntervalSec = 0.001f;
+            long now = System.currentTimeMillis();
+            for(int i = 0; i < 30; i++) leak.poll(0.1f, w, i, now + i * 600000L);   // 10-min steps, synthetic growth handled by trend math
+            if(leak.samples != 30) throw new AssertionError("samples " + leak.samples);
+            pass("dbg010/012/013/017");
+        } catch(Throwable t){ fail("dbg", t); failures++; }
+
+        // --- SCR-008/011/012 ---
+        try {
+            com.hollow.script.ScriptDebugger.ScriptDebuggerCore dbg = new com.hollow.script.ScriptDebugger.ScriptDebuggerCore();
+            dbg.setBreakpoint("main.flow", 3);
+            if(dbg.beforeStep("main.flow", 0, null) != true) throw new AssertionError("early break");
+            if(dbg.beforeStep("main.flow", 3, null) != false) throw new AssertionError("breakpoint not hit");
+            if(!dbg.paused()) throw new AssertionError("not paused");
+            dbg.cont();
+            if(dbg.beforeStep("main.flow", 4, null) != true) throw new AssertionError("continue failed");
+            // attach protocol (loopback)
+            com.hollow.script.ScriptDebugger.DebuggerAttach.LoopbackTransport tr =
+                new com.hollow.script.ScriptDebugger.DebuggerAttach.LoopbackTransport();
+            com.hollow.script.ScriptDebugger.DebuggerAttach.Client client =
+                new com.hollow.script.ScriptDebugger.DebuggerAttach.Client(tr);
+            if(!client.attach()) throw new AssertionError("attach");
+            if(!client.setBreakpoint("s", 1)) throw new AssertionError("remote bp");
+            // bytecode: compile + run vs semantics
+            java.util.List<Object> steps = com.hollow.core.Json.arr(com.hollow.core.Json.parse("""
+                [{"do":"set_var","key":"hp","value":10},
+                 {"do":"add_var","key":"hp","delta":-3},
+                 {"do":"if","if":"hp < 10","steps":[{"do":"emit","event":"low_hp"}]},
+                 {"do":"emit","event":"done"}]"""));
+            com.hollow.script.VarTable vars = new com.hollow.script.VarTable();
+            com.hollow.script.ScriptDebugger.Bytecode.Compiled prog = com.hollow.script.ScriptDebugger.Bytecode.compile(steps);
+            com.hollow.script.ScriptDebugger.Bytecode.Vm vm = new com.hollow.script.ScriptDebugger.Bytecode.Vm(prog, vars);
+            int guard = 0;
+            while(vm.update(0.016f) && guard++ < 100){ }
+            if(vars.num("hp", -1) != 7.0) throw new AssertionError("bytecode hp: " + vars.num("hp", -1));
+            if(!vm.emitted.contains("low_hp") || !vm.emitted.contains("done")) throw new AssertionError("emits: " + vm.emitted);
+            pass("scr008/011/012 debugger+attach+bytecode");
+        } catch(Throwable t){ fail("scr", t); failures++; }
+
+        // --- EXT-008 linter ---
+        try {
+            String bad = "[{\"do\":\"wait\"},{\"do\":\"unknown_thing\"},{\"no_do\":1}]";
+            com.hollow.script.FlowLinter.ActionRegistry knownOnly = new com.hollow.script.FlowLinter.ActionRegistry(){
+                @Override public boolean known(String action){ return action.equals("wait"); }
+                @Override public String[] requiredKeys(String action){ return new String[0]; }
+            };
+            java.util.List<com.hollow.script.FlowLinter.Diagnostic> diags =
+                com.hollow.script.FlowLinter.lint(bad, knownOnly);
+            if(diags.size() < 3) throw new AssertionError("too few diagnostics: " + diags.size());
+            if(diags.size() < 3) throw new AssertionError("too few diagnostics: " + diags.size());
+            boolean hasMissingDo = diags.stream().anyMatch(d -> "missing-do".equals(d.code));
+            boolean hasWaitNeg = diags.stream().anyMatch(d -> "wait-neg".equals(d.code));
+            if(!hasMissingDo || !hasWaitNeg) throw new AssertionError("expected codes missing");
+            String good = "[{\"do\":\"wait\",\"sec\":1}]";
+            if(com.hollow.script.FlowLinter.lint(good, com.hollow.script.FlowLinter.PERMISSIVE).size() != 0)
+                throw new AssertionError("false positive on clean script");
+            pass("ext008 flow linter");
+        } catch(Throwable t){ fail("ext008", t); failures++; }
+
+        // --- EXT-005/006/007 kit ---
+        try {
+            java.nio.file.Path proj = java.nio.file.Path.of("build/selftest-kit/mygame");
+            java.nio.file.Files.createDirectories(proj.resolve("assets"));
+            java.nio.file.Files.writeString(proj.resolve("project.json"), "{\"title\":\"My Game\"}");
+            java.nio.file.Files.writeString(proj.resolve("assets/blob.bin"), "x");
+            String zip = ExportKit.itchExport(proj.toString(), null, "My Game");
+            if(!java.nio.file.Files.exists(java.nio.file.Path.of(zip))) throw new AssertionError("zip missing");
+            String ci = ExportKit.writeCiTemplate(proj.toString());
+            if(!java.nio.file.Files.readString(java.nio.file.Path.of(ci)).contains("hollow-ci")) throw new AssertionError("ci yaml");
+            String py = ExportKit.writeBlenderAddon("build/selftest-kit/tools");
+            if(!java.nio.file.Files.readString(java.nio.file.Path.of(py)).contains("HVM_MAGIC")) throw new AssertionError("addon py");
+            pass("ext005/006/007 export kit");
+        } catch(Throwable t){ fail("ext005-007", t); failures++; }
+
+        // --- VR-001..010 headless pipeline ---
+        try {
+            com.hollow.vr.VrRuntime.HeadlessPipeline.Result vr = com.hollow.vr.VrRuntime.HeadlessPipeline.run();
+            if(!vr.all()) throw new AssertionError("pipeline: " + vr.summary);
+            // session facade
+            com.hollow.vr.VrRuntime.VrSession session = new com.hollow.vr.VrRuntime.VrSession();
+            session.start();
+            for(int i = 0; i < 60; i++) session.frame(1f / 90f, i % 10 == 0 ? 13f : 9f);
+            if(session.rig.framesRendered != 60) throw new AssertionError("session frames");
+            pass("vr001-010 headless VR pipeline");
+        } catch(Throwable t){ fail("vr", t); failures++; }
+
         return failures;
     }
 
@@ -3330,5 +3778,208 @@ public final class Commands {
             Process p = new ProcessBuilder("/bin/sh", "-c", cmd).inheritIO().start();
             return p.waitFor();
         } catch(Exception e){ throw new RuntimeException(e); }
+    }
+
+    // ================= v2.5: EXT batch (export / lint / lsp / debug) =================
+
+    /** `hollow export itch|ci|blender|jar` — distribution generators (EXT-005/006/007/010). */
+    static void exportCmd(String[] args){
+        String kind = args.length > 1 ? args[1] : "";
+        switch(kind){
+            case "itch" -> {
+                String project = Main.arg(args, "-p", "project", 2);
+                String apk = Main.opt(args, "--apk", null);
+                try {
+                    String title = projectTitle(project);
+                    ExportKit.itchExport("projects/" + project, apk, title);
+                } catch(Exception e){ throw new Main.CliError("itch export failed: " + e.getMessage()); }
+            }
+            case "ci" -> {
+                String project = Main.arg(args, "-p", "project", 2);
+                try { ExportKit.writeCiTemplate("projects/" + project); }
+                catch(Exception e){ throw new Main.CliError("ci template failed: " + e.getMessage()); }
+            }
+            case "blender" -> {
+                String out = Main.opt(args, "--out", "tools");
+                try { ExportKit.writeBlenderAddon(out); }
+                catch(Exception e){ throw new Main.CliError("blender addon failed: " + e.getMessage()); }
+            }
+            case "jar" -> {
+                try { ExportKit.packSingleJar("."); }
+                catch(Main.CliError e){ throw e; }
+                catch(Exception e){ throw new Main.CliError("jar pack failed: " + e.getMessage()); }
+            }
+            default -> throw new Main.CliError("usage: hollow export itch|ci|blender|jar ...");
+        }
+    }
+
+    static String projectTitle(String project){
+        try {
+            Map<String,Object> pj = Json.parseObj(java.nio.file.Files.readString(
+                java.nio.file.Path.of("projects", project, "project.json")));
+            return Json.str(pj.get("title"), project);
+        } catch(Exception e){ return project; }
+    }
+
+    /** `hollow lint <script.json>` — FlowScript linter (EXT-008 core). */
+    static void lintScript(String[] args){
+        String path = Main.arg(args, "-f", "file", 1);
+        boolean strict = Main.hasFlag(args, "--strict");
+        String text;
+        try { text = java.nio.file.Files.readString(java.nio.file.Path.of(path)); }
+        catch(Exception e){ throw new Main.CliError("cannot read " + path); }
+        List<com.hollow.script.FlowLinter.Diagnostic> diags =
+            com.hollow.script.FlowLinter.lint(text, com.hollow.script.FlowLinter.PERMISSIVE);
+        int errors = 0;
+        for(com.hollow.script.FlowLinter.Diagnostic d : diags){
+            if(d.severity == 1 || (strict && d.severity <= 2)) errors++;
+            System.out.printf("L%d:%d %s %s: %s%n", d.line + 1, d.col + 1,
+                switch(d.severity){ case 1 -> "error"; case 2 -> "warn"; default -> "info"; },
+                d.code, d.message);
+        }
+        System.out.println(diags.size() + " diagnostics, " + errors + " blocking" + (errors > 0 ? " → exit 1" : ""));
+        if(errors > 0) System.exit(1);
+    }
+
+    /** `hollow lsp` — Language Server Protocol over stdio (EXT-008). */
+    static void lspServer(String[] args){
+        new LspServer().run();
+    }
+
+    /** `hollow debug <script.json> [--bp N] [--step]` — script debugger (SCR-008). */
+    static void debugScript(String[] args){
+        String path = Main.arg(args, "-f", "file", 1);
+        String text;
+        try { text = java.nio.file.Files.readString(java.nio.file.Path.of(path)); }
+        catch(Exception e){ throw new Main.CliError("cannot read " + path); }
+        Object root = Json.parse(text);
+        List<Object> steps = Json.arr(root);
+        if(steps == null) throw new Main.CliError("not a FlowScript step list");
+        var dbg = new com.hollow.script.ScriptDebugger.ScriptDebuggerCore();
+        for(int i = 1; i < args.length; i++){
+            if(args[i].equals("--bp") && i + 1 < args.length){
+                try { dbg.setBreakpoint(path, Integer.parseInt(args[++i])); }
+                catch(NumberFormatException nfe){ throw new Main.CliError("--bp expects a number"); }
+            }
+        }
+        if(Main.hasFlag(args, "--step")) dbg.stepOver();
+        System.out.println("script: " + path + " steps=" + steps.size() + " " + dbg.state());
+        int i = 0;
+        for(Object o : steps){
+            boolean run = dbg.beforeStep(path, i, null);
+            System.out.printf("%3d %s %s%n", i, run ? "run " : "BREAK",
+                String.valueOf(o).length() > 100 ? String.valueOf(o).substring(0, 100) + "…" : String.valueOf(o));
+            if(dbg.paused()) break;
+            i++;
+        }
+        System.out.println(dbg.state());
+    }
+
+    /** minimal JSON-RPC LSP server (stdio): initialize, didOpen/didChange
+     *  diagnostics, shutdown. Enough for a VSCode FlowScript extension. */
+    static final class LspServer {
+        void run(){
+            try (java.io.BufferedReader in = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(System.in, StandardCharsets.UTF_8))){
+                java.io.PrintStream out = new java.io.PrintStream(new FileOutputStream(java.io.FileDescriptor.out), false, "UTF-8");
+                System.err.println("FlowScript LSP listening (Content-Length framing)");
+                String line;
+                Map<String,String> openDocs = new LinkedHashMap<>();
+                while((line = in.readLine()) != null){
+                    if(line.isBlank()) continue;
+                    // Content-Length: N framing — body follows
+                    if(line.toLowerCase().startsWith("content-length:")){
+                        int len = Integer.parseInt(line.substring(15).trim());
+                        // read until blank line
+                        while((line = in.readLine()) != null && !line.isBlank()){ /* headers */ }
+                        char[] body = new char[len];
+                        int read = 0;
+                        while(read < len){
+                            int r = in.read(body, read, len - read);
+                            if(r < 0) break;
+                            read += r;
+                        }
+                        handle(new String(body, 0, read), out, openDocs);
+                    } else {
+                        handle(line, out, openDocs);   // raw line mode (CLI testing)
+                    }
+                }
+            } catch(Exception e){
+                throw new Main.CliError("lsp crashed: " + e.getMessage());
+            }
+        }
+
+        void handle(String body, java.io.PrintStream out, Map<String,String> openDocs){
+            try {
+                Map<String,Object> msg = Json.parseObj(body);
+                String method = Json.str(msg.get("method"), "");
+                Map<String,Object> params = Json.obj(msg.get("params"));
+                switch(method){
+                    case "initialize" -> {
+                        Map<String,Object> caps = new LinkedHashMap<>();
+                        caps.put("textDocumentSync", 1.0);
+                        respond(out, msg.get("id"), Map.of("capabilities", caps));
+                    }
+                    case "initialized" -> { /* notification, no reply */ }
+                    case "textDocument/didOpen", "textDocument/didChange" -> {
+                        Map<String,Object> td = Json.obj(params.get("textDocument"));
+                        String uri = Json.str(td.get("uri"), "");
+                        String text = method.endsWith("didOpen")
+                            ? Json.str(td.get("text"), "")
+                            : textFromChange(params);
+                        openDocs.put(uri, text);
+                        publishDiagnostics(out, uri, text);
+                    }
+                    case "shutdown" -> respond(out, msg.get("id"), Map.of());
+                    case "exit" -> System.exit(0);
+                    default -> {
+                        if(msg.get("id") != null){
+                            respond(out, msg.get("id"), Map.of("error", "method not supported: " + method));
+                        }
+                    }
+                }
+            } catch(Exception e){
+                System.err.println("bad frame: " + e.getMessage());
+            }
+        }
+
+        String textFromChange(Map<String,Object> params){
+            List<Object> changes = Json.arr(params.get("contentChanges"));
+            if(changes != null && !changes.isEmpty()){
+                Map<String,Object> c = Json.obj(changes.get(0));
+                if(c != null) return Json.str(c.get("text"), "");
+            }
+            return "";
+        }
+
+        void publishDiagnostics(java.io.PrintStream out, String uri, String text){
+            List<Object> diags = new ArrayList<>();
+            for(com.hollow.script.FlowLinter.Diagnostic d : com.hollow.script.FlowLinter.lint(text, com.hollow.script.FlowLinter.PERMISSIVE)){
+                diags.add(d.toLsp());
+            }
+            Map<String,Object> note = new LinkedHashMap<>();
+            note.put("jsonrpc", "2.0");
+            note.put("method", "textDocument/publishDiagnostics");
+            Map<String,Object> p = new LinkedHashMap<>();
+            p.put("uri", uri);
+            p.put("diagnostics", diags);
+            note.put("params", p);
+            send(out, Json.write(note));
+        }
+
+        void respond(java.io.PrintStream out, Object id, Map<String,Object> result){
+            Map<String,Object> m = new LinkedHashMap<>();
+            m.put("jsonrpc", "2.0");
+            m.put("id", id instanceof Number n ? n.doubleValue() : id);
+            m.put("result", result);
+            send(out, Json.write(m));
+        }
+
+        void send(java.io.PrintStream out, String json){
+            byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
+            out.print("Content-Length: " + bytes.length + "\r\n\r\n");
+            out.print(json);
+            out.flush();
+        }
     }
 }

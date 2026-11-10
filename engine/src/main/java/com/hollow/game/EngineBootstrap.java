@@ -128,6 +128,16 @@ public final class EngineBootstrap {
         w.componentRegistry.put("Dissolve", com.hollow.vfx.VfxSystems.Dissolve::new);
         w.componentRegistry.put("AmbientLife", com.hollow.vfx.VfxSystems.AmbientLife::new);
         w.componentRegistry.put("Seasons", com.hollow.vfx.VfxSystems.Seasons::new);
+        // v2.5 components (WLD/AI/VFX/ENV batch)
+        w.componentRegistry.put("InteriorBlend", com.hollow.world.WorldFeatures.InteriorBlend::new);
+        w.componentRegistry.put("MedicalBehavior", com.hollow.ai.AiFeatures.MedicalBehavior::new);
+        w.componentRegistry.put("AuraRing", com.hollow.vfx.VfxFeatures.AuraRing::new);
+        w.componentRegistry.put("AmbientFlight", com.hollow.vfx.VfxFeatures.AmbientFlight::new);
+        w.componentRegistry.put("TemperatureVolume", com.hollow.world.EnvFeatures.TemperatureVolume::new);
+        w.componentRegistry.put("VideoProjector", com.hollow.world.EnvFeatures.VideoProjector::new);
+        w.componentRegistry.put("PlanarMirror", com.hollow.world.EnvFeatures.PlanarMirror::new);
+        w.componentRegistry.put("RainWindow", com.hollow.world.EnvFeatures.RainWindow::new);
+        w.componentRegistry.put("WaterSurface", com.hollow.world.EnvFeatures.WaterSurface::new);
     }
 
     /** after a world loads: physics statics, agent setup, script start events */

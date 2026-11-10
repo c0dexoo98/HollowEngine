@@ -38,6 +38,11 @@ public final class Main {
                 case "selftest": Commands.selfTest(); break;
                 // v2.1 — interactive console (Batch 1)
                 case "shell": case "repl": System.exit(Shell.run(args)); break;
+                // v2.5 — EXT batch
+                case "export": Commands.exportCmd(args); break;
+                case "lsp": Commands.lspServer(args); break;
+                case "lint": Commands.lintScript(args); break;
+                case "debug": Commands.debugScript(args); break;
                 default:
                     System.err.println("unknown command: " + cmd);
                     help();
@@ -106,6 +111,15 @@ public final class Main {
               shell                                interactive REPL console (world/actor/cvar/batch)
               shell -c "cmd1; cmd2"                run one shell line non-interactively
               shell -f session.hvefile             run a .hvefile batch script
+              
+            v2.5:
+              export itch -p <project> [--apk dist/app.apk]   itch.io zip + page templates
+              export ci -p <project>                          GitHub Actions workflow
+              export blender [--out tools/blender]            Blender .hvm export addon
+              export jar                                      pack CLI into dist/hollow.jar
+              lint <script.flow.json> [--strict]              FlowScript linter
+              lsp                                             run LSP server on stdio (VSCode)
+              debug <script.flow.json> [--bp N] [--step]      script debugger (breakpoints/step)
             
             project layout: projects/<name>/{project.json, scenes/, raw/, assets/, scripts/, ai/, ui/, strings/, input.json}
             """);

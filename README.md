@@ -11,7 +11,7 @@
 > **v2.1** (`hollow-foundation`, Batch 1) — پوسته تعاملی `hollow shell` (REPL + .hvefile)،
 > سیستم CVar، کنسول فرمان، CrashHandler، Watchdog، JobQueue، Subsystems، Pool/Arena/RingBuffer/ReleaseQueue،
 > MemoryStats، Noise/PCG/Ease/Spline/HalfFloat/Vec4/Rect/Plane، Guid، Prefab، Result.
-> چک‌لیست مستر ۵۷۰ قابلیت: `docs/FEATURES.md` (۳۹۰ انجام‌شده، ۱۸۰ در صف).
+> چک‌لیست مستر ۵۷۰ قابلیت: `docs/FEATURES.md` (**۵۷۰/۵۷۰ کامل** ✅).
 > World Streaming، Profiler + بیلد تست خودکار.
 >
 > **v2.2** (تکمیل Batch 1 + Batch 2 رندر) — حافظه: FrameArena خودریست، EntityPool، WeakPool،
@@ -83,6 +83,41 @@
 > hot reload اسکریپت، coroutine، sandbox مجوزها، profiler per-script، داکنگ خودکار API.
 > تست: `hollow selftest` — **۱۵۹ تست** (همه سبز).
 
+> **v2.5** (`hollow-everything`, Batch 7 — تکمیل ماتریس ۵۷۰/۵۷۰ ✅) —
+> **دنیا (WLD)**: **تولید خودکار LOD چندسطحی** (decimation خوشه‌ای رأس + نرمال بازسازی + زنجیره ۶۰/۳۵/۱۵٪)،
+> **Interior/Exterior Blend** (محو نرم محیط/مه/ریورب بین داخل و خارج)، **پیش‌گرمایش سلول‌های مجاور**
+> در پس‌زمینه (JobQueue + کش بایت)، **streaming با بودجه حافظه** (تخلیه ارزان‌ترین: هزینه×فاصله)،
+> ادغام چند صحنه در یک World، **Snapshot قطعی World** (هش FNV + JSON) برای تست regression،
+> **HeadlessWorld** برای سرور/CI.
+> **هوش مصنوعی**: **مسیریابی تررین پیوسته** (A* با هزینه شیب + حذف زاویه‌یابی بر مبنای شیب)،
+> **پزشکی NPC** (زخمی → فرار/تقلا/بهبود با استقامت)، **کارگردان ریتم** (تنش → quiet/build/peak/release با پنجره استراحت)،
+> **سناریوتست خودکار AI** با assert های ایننت/فاصله/شمارش.
+> **UI/ورودی**: پنل شیشه‌مات (blur جداشدنی CPU + tint + compose آلفا)، **گیم‌پد بلوتوثی اندروید**
+> (نگاشت استاندارد دکمه/استیک/تریگر + deadzone شعاعی + rumble + hot-plug).
+> **شبکه**: handshake رمزی **XOR+nonce** (SHA-256 از secret+nonces، چرخش per-packet)،
+> **حالت تماشاچی** (observer: دریافت snapshot بدون اثر بر شبیه‌سازی + follow دوربین)،
+> **همگام‌سازی blackboard** بین کلاینت‌ها (last-write-wins با شمارنده revision)، **remote console** توکن‌دار.
+> **سیو/بومی‌سازی**: ذخیره امن اندروید (پوشه داخلی + نوشتن atomic)، **قلاب ابری** (آداپتور pluggable + newest-wins + صف آفلاین)،
+> **کاور اسلات** (اسکرین‌شات در فرمت HCOV با downscale)، **سیو چندبخشی** (chapter select + merge متغیر/انبار)،
+> **hot-reload ترجمه** بدون ری‌استارت، **font fallback** خودکار برای گلیف گم‌شده.
+> **VFX/ENV**: gore کنترل‌شده (قطعات با پرش/برخورد/رد خون)، جرقه با برخورد سطح و restitution،
+> کمان تیغه (arc mesh sweep + fade)، حلقه شعبده (pulse/rune)، **پرواز گله پرنده/شب‌تاب** (boids-lite)،
+> خون روی لنز (چکیده + چکیدن + تبخیر)، وینیت خون per-camera (۴ سطح bake)،
+> اتاق گرم (دما/رطوبت → بخار/میعان)، پروژکتور ویدئو (cone + falloff)، **آینه planar** (انعکاس دوربین)،
+> پنجره باران‌خورده (رگه‌ها + refraction)، سطح آب با انعکاس آسمان (موج دوفرکانسی + fresnel).
+> **دیباگ/اسکریپت**: inspector موجودیت درون‌بازی (انتخاب/ویرایش/undo)، **replay ۶۰ثانیه‌ای ورودی** (حلقه‌ای)،
+> **heat map هزینه رندر** (رامپ آبی→قرمز + ASCII)، **مانیتور نشتی هفتگی** (روند least-squares + هشدار)،
+> دیباگر اسکریپت CLI (breakpoint/step)، **اتاچ دیباگر به دستگاه** (پروتکل hello/bp/step/vars قابل حمل)،
+> **بایت‌کد داخلی** (کامپایل step list به op[] با constant pool + VM سریع + fallback مفسر).
+> **VR کامل (۱۰ قابلیت)**: rig دوچشمی با projection جدا + IPD، **head tracking** از سنسور اندروید
+> (مدل گردن)، **async reprojection سبک**، کنترلر لمسی 3DoF، کالیبراسیون IPD،
+> comfort vignette هنگام چرخش، **پروفایل 90Hz**، کاهش کیفیت خودکار پله‌ای، صدای binaural VR،
+> **تست headless خط لوله VR** (۹ assert).
+> **ابزار توزیع (EXT)**: خروجی **itch.io** (zip + قالب صفحه HTML/MD)، **قالب CI گیت‌هاب** (build+selftest)،
+> **افزونه Blender** (خروجی مستقیم .hvm)، **LSP برای FlowScript** (diagnostics روی stdio برای VSCode)،
+> `hollow lint`، دیباگر CLI، **پروفایلر ریموت** (فریم JSON/GZIP + کلاینت جدولی)، **بسته single-jar** قابل توزیع.
+> تست: `hollow selftest` — **۱۸۰ تست** (همه سبز) — ماتریس کامل ۵۷۰/۵۷۰.
+
 ---
 
 ## معماری (ماژول‌ها)
@@ -101,9 +136,10 @@
 | `com.hollow.vfx` | سیستم پارتیکل CPU: rate/burst/curves (اندازه/رنگ بر عمر)، gravity/drag، additive | Niagara (سبک) |
 | `com.hollow.script` | **FlowScript** — گراف رویداد→شرط→اقدام داده‌محور با ۳۰+ اکشن، زبان شرط مینی (`has_item()`, `dist_to() < 5`, `chance(0.3)`...)، EventBus با تاخیر قطعی | Blueprint (داده‌محور) |
 | `com.hollow.cine` | **Sequencer** — تایم‌لاین سینماتیک + تراک انیمیشن/محیط/اسپلاین دوربین (v2.4) | Sequencer |
+| `com.hollow.vr` | **v2.5**: VrRig (multi-view)، HeadTracking، AsyncReprojection، TouchController، IPD، ComfortVignette، پروفایل 90Hz، QualityScaler، BinauralAudio، HeadlessPipeline | VR |
 | `com.hollow.game` | GameApp، Bootstrap، InputActions (مپینگ JSON)، SaveSystem (اسلات)، Localization با RTL، GameConfig | GameMode/Enhanced Input/SaveGame |
-| `com.hollow.world` | **v2.4**: DayNightCycle، GlobalWind، Portal/PortalSystem، WaterDomain (جزر/مد)، TriggerZone، AudioZone، WorldBounds، scatter قطعی | World/Level streaming |
-| `com.hollow.debug` | **v2.4**: ConsolePanel، FpsGraph، FrameStepper، SystemStats، ProjectAsserts، EventMonitor، Telemetry، HotReload، Coroutine، Sandbox، ScriptProfiler | DevTools |
+| `com.hollow.world` | **v2.4+2.5**: DayNightCycle، GlobalWind، Portal، WaterDomain، TriggerZone، AudioZone + InteriorBlend، PrewarmQueue، MemoryBudget، WorldMerger، WorldSnapshot، HeadlessWorld، TemperatureVolume، VideoProjector، PlanarMirror، RainWindow، WaterSurface | World/Level streaming |
+| `com.hollow.debug` | **v2.4+2.5**: ConsolePanel، FpsGraph، FrameStepper، SystemStats، EventMonitor، Telemetry + EntityInspector، InputReplay، RenderHeatMap، LeakMonitor، RemoteProfiler | DevTools |
 | `com.hollow.net` | TcpChannel + **UdpLink قابل‌اطمینان** (seq/ack/resend)، DeltaSnapshot، Prediction/Reconcile، EntityInterp، Lobby کددار، SendQueue، Monitor | Networking |
 | `runtime-android` | EngineActivity + GLSurfaceView ES3 + ورودی لمسی دو-منطقه‌ای (استیک مجازی+نگاه)، AudioTrack، BitmapFactory، **متن با شکل‌دهی صحیح**، OGG با MediaCodec | Platform Android |
 
