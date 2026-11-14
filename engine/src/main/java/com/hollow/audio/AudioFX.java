@@ -34,7 +34,7 @@ public final class AudioFX {
         private final float[][] apBufR = new float[4][];
         private final int[] apIdxL = new int[4];
         private final int[] apIdxR = new int[4];
-        private float roomSize1, damp1 = 0f, wet1 = 0f;
+        private float roomSize1, damp1 = 0f, damp2 = 1f, wet1 = 0f;
 
         public Reverb(){
             for(int i = 0; i < 8; i++){
@@ -50,7 +50,8 @@ public final class AudioFX {
 
         public void update(){
             roomSize1 = roomSize * ROOM_SCALE + ROOM_OFFSET;
-            damp1 = damp * SCALE_DAMP;
+            damp1 = damp * SCALE_DAMP;      // zero coefficient (applied to output)
+            damp2 = 1f - damp1;             // pole coefficient (filterstore feedback)
             wet1 = wet * SCALE_WET;
         }
 
@@ -90,9 +91,9 @@ public final class AudioFX {
 
         private float combProcess(float[] buf, int[] idx, float[] fil, float in, int cIdx){
             float output = buf[idx[cIdx]];
-            // freeverb comb: damp the stored output then feed it back scaled by roomSize —
-            // writing the damped input with no feedback killed the tail within one period
-            fil[cIdx] = output * damp1 + in * (1f - damp1);
+            // freeverb comb: one-pole lowpass over SUCCESSIVE outputs — filterstore feeds
+            // itself back (pole damp2); mixing the input instead killed the tail for damp<1
+            fil[cIdx] = output * damp1 + fil[cIdx] * damp2;
             buf[idx[cIdx]] = in + fil[cIdx] * roomSize1;
             if(++idx[cIdx] >= buf.length) idx[cIdx] = 0;
             return output;

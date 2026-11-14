@@ -7,6 +7,15 @@ import com.hollow.scene.Component;
 
 /** Static/trigger capsule collider (vertical). API FINAL. */
 public final class CapsuleCollider extends Component {
+    /** v2.5.2: self-registration for dynamically spawned colliders (World.update calls onUpdate) */
+    private boolean selfRegDone = false;
+    @Override public void onUpdate(float dt){
+        if(selfRegDone) return;
+        com.hollow.game.GameApp app = com.hollow.game.GameApp.instance;
+        if(app == null || app.services() == null || app.services().physics == null) return;
+        app.services().physics.registerCollider(entity);
+        selfRegDone = true;
+    }
     public float radius = 0.4f;
     public float height = 1.8f;
     public final Vec3 offset = new Vec3();

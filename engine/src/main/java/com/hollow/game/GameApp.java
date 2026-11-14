@@ -47,7 +47,8 @@ public abstract class GameApp {
         services.app = this;
         EngineBootstrap.registerAll(services);
         onStart();
-        loadScene(svc.config.entryScene, null);
+        if(svc.config.entryScene != null && !svc.config.entryScene.isBlank())
+            loadScene(svc.config.entryScene, null);   // v2.5.2: blank entryScene = programmatic world
     }
 
     // ------------- scene -------------

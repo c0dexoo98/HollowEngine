@@ -155,6 +155,18 @@ public final class PhysicsWorld {
         if(!bodies.contains(rb)) bodies.add(rb);
     }
 
+    /** v2.5.2: runtime registration for dynamically spawned colliders (mirrors registerBody).
+     *  Dedup: skip when this entity already contributed a static shape of the same kind. */
+    public void registerCollider(Entity e){
+        if(e == null) return;
+        BoxCollider b = e.get(BoxCollider.class);
+        if(b != null){ addBox(e, b); return; }
+        SphereCollider s = e.get(SphereCollider.class);
+        if(s != null){ addSphere(e, s); return; }
+        CapsuleCollider c = e.get(CapsuleCollider.class);
+        if(c != null){ addCapsule(e, c); return; }
+    }
+
     /** v2.0: runtime registration for dynamically spawned character controllers */
     public void registerController(CharacterController cc){
         if(cc == null || cc.entity == null) return;
