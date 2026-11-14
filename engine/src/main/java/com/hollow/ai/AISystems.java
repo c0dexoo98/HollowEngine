@@ -115,6 +115,7 @@ public final class AISystems {
         public float reactionTime = 0.35f;
         public float reactionJitter = 0.2f;
         private float reactionLeft = 0f;
+        private boolean reactionFired = false;
         private long rngState = 0x2545F4914F6CDD1DL;
 
         // AI-028 flashlight blindness / AI-029 footstep hearing integrated:
@@ -147,8 +148,8 @@ public final class AISystems {
 
         /** returns true exactly when reaction delay elapsed (fire chase once). */
         public boolean reactionElapsed(float dt){
-            if(suspicion < 0.7f){ reactionLeft = 0f; return false; }
-            if(reactionLeft <= 0f){
+            if(suspicion < 0.7f){ reactionLeft = 0f; reactionFired = false; return false; }
+            if(reactionLeft <= 0f && !reactionFired){ reactionFired = true;
                 rngState ^= rngState << 13; rngState ^= rngState >>> 7; rngState ^= rngState << 17;
                 float j = ((rngState >>> 8) % 1000) / 1000f;
                 reactionLeft = reactionTime + reactionJitter * j;
@@ -169,7 +170,12 @@ public final class AISystems {
             out.kv("memoryDuration", memoryDuration); out.endObj();
         }
         @Override public void load(JsonV n){
-            lastSeenPos.set(n.flt("lastSeenPos.x",0), n.flt("lastSeenPos.y",0), n.flt("lastSeenPos.z",0));
+            Object lsp = n.get("lastSeenPos");
+            if(lsp instanceof java.util.List<?> l && l.size() >= 3){
+                if(l.get(0) instanceof Number n0) lastSeenPos.x = n0.floatValue();
+                if(l.get(1) instanceof Number n1) lastSeenPos.y = n1.floatValue();
+                if(l.get(2) instanceof Number n2) lastSeenPos.z = n2.floatValue();
+            }
             lastSeenTime = n.flt("lastSeenTime", -999f); suspicion = n.flt("suspicion", 0f);
             memoryDuration = n.flt("memoryDuration", 8f);
         }

@@ -68,7 +68,6 @@ public final class World {
         for(Entity e : batch){
             e.destroyed = false;
             entities.add(e);
-            for(Component c : e.allComponents()) c.onAttach();
         }
         invalidateIndex();
     }

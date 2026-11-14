@@ -48,7 +48,7 @@ public final class CrowdAvoidance {
             float w = (1f - dist / radius) * front * strength;
             if(Math.abs(s) < 0.05f){
                 // head-on: pick deterministic side from entity ids
-                s = self.id < oe.id ? 1f : -1f;
+                s = 1f;  // pair-symmetric: both agents resolve to opposite world directions
             } else {
                 s = Math.signum(s);
             }

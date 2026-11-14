@@ -25,9 +25,12 @@ public final class HalfFloat {
             half += (mant >> (shift - 1)) & 1;                      // round to nearest
             return (short)(sign | half);
         }
-        int half = (e << 10) | (mant >>> 13);
-        half += (mant >>> 12) & 1;                                  // round to nearest
-        return (short)(sign | half);
+        int mantShort = (mant >>> 13) + ((mant >>> 12) & 1);         // 10-bit mantissa + round bit
+        if(mantShort == 0x400){                                     // mantissa carried into exponent
+            mantShort = 0; e += 1;
+        }
+        if(e >= 0x1F) return (short)(sign | 0x7C00);                // overflow -> infinity
+        return (short)(sign | (e << 10) | mantShort);
     }
 
     /** half bits -> float */

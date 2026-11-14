@@ -172,7 +172,7 @@ public final class EQS {
                         else {
                             float d = c.dist(target.worldPosition());
                             if(t.min == t.min && d < t.min){ reject = true; break; }
-                            if(t.max == t.max){ /* no max */ }
+                            if(t.max != t.max){ /* no max */ }
                             else if(d > t.max){ reject = true; break; }
                             v = 1f;
                         }

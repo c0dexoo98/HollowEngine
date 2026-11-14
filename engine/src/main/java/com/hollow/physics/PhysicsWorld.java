@@ -234,7 +234,7 @@ public final class PhysicsWorld {
         }
         // angular integration: yaw only (mobile-friendly single-axis spin; pitch/roll reserved)
         if(Math.abs(rb.angularVelocity.y) > 1e-5f){
-            com.hollow.core.Quat delta = com.hollow.core.Quat.fromAxisAngle(0, 1, 0, rb.angularVelocity.y * dt * MathX.DEG);
+            com.hollow.core.Quat delta = com.hollow.core.Quat.fromAxisAngle(0, 1, 0, (float)Math.toDegrees(rb.angularVelocity.y * dt));
             delta.mul(e.rotation);
             e.rotation.set(delta).norm();
             e.markDirtyDeep();

@@ -32,6 +32,7 @@ final class HeadlessApp {
 
         TestApp app = new TestApp();
         long t0 = System.currentTimeMillis();
+        Log.setCapturing(true); Log.clearCapture();
         app.boot(svc);
         for(int i=0;i<ticks && app.isRunning();i++) app.frame();
         long ms = System.currentTimeMillis() - t0;

@@ -154,7 +154,8 @@ public final class NavGrid {
             i = j;
         }
         Vec3 last = out.get(out.size() - 1);
-        if(last.dist2(to) > 0.01f) out.add(to.cpy());
+        int gx = cellX(to.x), gz = cellZ(to.z);
+        if(last.dist2(to) > 0.01f && !blocked(gx, gz)) out.add(to.cpy());
         return out;
     }
 

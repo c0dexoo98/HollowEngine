@@ -12,7 +12,7 @@ public final class Log {
     public interface Sink { void write(Level lvl, String tag, String msg); }
 
     private static volatile Sink sink = (lvl, tag, msg) -> {
-        String line = LocalTime.now().toString().substring(0,8) + " [" + lvl + "][" + tag + "] " + msg;
+        String line = String.format("%02d:%02d:%02d", LocalTime.now().getHour(), LocalTime.now().getMinute(), LocalTime.now().getSecond()) + " [" + lvl + "][" + tag + "] " + msg;
         (lvl == Level.ERROR ? System.err : System.out).println(line);
     };
     private static volatile Level minLevel = Level.INFO;

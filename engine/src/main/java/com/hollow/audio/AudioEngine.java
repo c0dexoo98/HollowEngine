@@ -173,6 +173,7 @@ public final class AudioEngine {
 
     /** mix one fixed step: advance all voices, mix into stereo 16-bit block, push to sink */
     public void update(float dt){
+        if(reverb != null) reverb.update();
         if(dt <= 0) return;
         updateMusicFade(dt);
         reverbZones.update(this, listenerPos, dt);        // AUD-024 zone blend
@@ -365,12 +366,23 @@ public final class AudioEngine {
             v.cursor += sstep;
         }
         // AUD-023: wall occlusion — lowpass + gain on this voice's contribution
-        if(occlusion > 0.01f){
-            v.occlFilter.process(occlusion, dst, frames, sampleRate);
+        // (per-voice scratch: must NOT touch dst directly — that is the shared master mix)
+        if(occlusion > 0.01f && frames <= occlScratch.length / 2){
+            occlScratchFill(dst, frames);
+            v.occlFilter.process(occlusion, occlScratch, frames, sampleRate);
+            occlScratchBlend(dst, frames);
         }
     }
 
     private static float lerpF(float a, float b, float t){ return a + (b - a) * t; }
+    private final float[] occlScratch = new float[2 * 4096];   // per-voice occlusion staging
+    private void occlScratchFill(float[] src, int frames){
+        System.arraycopy(src, 0, occlScratch, 0, frames * 2);
+    }
+    private void occlScratchBlend(float[] dst, int frames){
+        // overwrite the voice's contribution with the filtered version
+        System.arraycopy(occlScratch, 0, dst, 0, frames * 2);
+    }
     private final float[] binauralScratch = new float[2];   // AUD-018 per-sample out
 
     // ---------------- handle + params (public API identical to stub) ----------------

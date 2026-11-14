@@ -127,20 +127,29 @@ public final class LZ4 {
             int litLen = token >>> 4;
             if(litLen == 15){
                 int b;
-                do { b = src[s++] & 0xFF; litLen += b; } while(b == 255);
+                do {
+                    if(s >= srcLen) throw new IllegalArgumentException("corrupt LZ4: truncated literal length");
+                    b = src[s++] & 0xFF; litLen += b;
+                    if(litLen < 0) throw new IllegalArgumentException("corrupt LZ4: literal length overflow");
+                } while(b == 255);
             }
-            if(s + litLen > srcLen || d + litLen > expectedLen) throw new IllegalArgumentException("corrupt LZ4: literals overrun");
+            if(litLen > srcLen - s || d > expectedLen - litLen) throw new IllegalArgumentException("corrupt LZ4: literals overrun");
             if(litLen > 0){ System.arraycopy(src, s, dst, d, litLen); }
             s += litLen; d += litLen;
             if(s >= srcLen) break;                      // last sequence
+            if(s + 1 >= srcLen) throw new IllegalArgumentException("corrupt LZ4: truncated offset");
             int offset = (src[s++] & 0xFF) | (src[s++] & 0xFF) << 8;
             if(offset == 0 || offset > d) throw new IllegalArgumentException("corrupt LZ4: offset " + offset + " at " + d);
             int matchLen = (token & 0xF) + MIN_MATCH;
             if((token & 0xF) == 15){
                 int b;
-                do { b = src[s++] & 0xFF; matchLen += b; } while(b == 255);
+                do {
+                    if(s >= srcLen) throw new IllegalArgumentException("corrupt LZ4: truncated match length");
+                    b = src[s++] & 0xFF; matchLen += b;
+                    if(matchLen < 0) throw new IllegalArgumentException("corrupt LZ4: match length overflow");
+                } while(b == 255);
             }
-            if(d + matchLen > expectedLen) throw new IllegalArgumentException("corrupt LZ4: output overrun");
+            if(d > expectedLen - matchLen) throw new IllegalArgumentException("corrupt LZ4: output overrun");
             int mp = d - offset;
             if(offset >= matchLen){
                 // non-overlapping: fast bulk copy
@@ -152,7 +161,8 @@ public final class LZ4 {
                 for(int i=0;i<matchLen;i++) dst[d++] = dst[mp++];
             }
         }
-        return d == expectedLen ? dst : Arrays.copyOf(dst, d);
+        if(d != expectedLen) throw new IllegalArgumentException("corrupt LZ4: size mismatch " + d + " != " + expectedLen);
+        return dst;
     }
 
     /** round-trip validity check (used by tests + savegame verification) */

@@ -100,15 +100,14 @@ public final class Joints {
             float wSum = wA + wB;
             if(wSum < 1e-8f) return 0f;
             float corr = err / wSum;
+            float relV = bodyB.velocity.dot(n) - bodyA.velocity.dot(n);
             if(wA > 0f){
                 if(!bodyA.kinematic) entity.position.addScaled(n, -corr * wA);
-                float vn = bodyA.velocity.dot(n);
-                bodyA.velocity.addScaled(n, -vn);         // cancel approach velocity
+                bodyA.velocity.addScaled(n, relV * (wA / wSum));   // cancel approach velocity (relative)
             }
             if(wB > 0f){
                 if(!bodyB.kinematic) bodyB.entity.position.addScaled(n, corr * wB);
-                float vn = bodyB.velocity.dot(n);
-                bodyB.velocity.addScaled(n, -vn);
+                bodyB.velocity.addScaled(n, -relV * (wB / wSum));
             }
             entity.markDirtyDeep(); bodyB.entity.markDirtyDeep();
             return Math.abs(corr);
@@ -189,16 +188,16 @@ public final class Joints {
             // v2.3 angular motor: drive relative yaw around axis toward motorSpeed
             if(Math.abs(angularMotorSpeed) > 1e-5f && dt > 0f){
                 float relYaw = relativeYaw();
-                float targetYawDelta = angularMotorSpeed * dt * com.hollow.core.MathX.DEG;
-                float stepYaw = targetYawDelta;
+                float stepYaw = angularMotorSpeed * dt;              // radians this step
                 if(useLimits){
-                    float next = clampAngle(relYaw + stepYaw);
-                    stepYaw = next - relYaw;
+                    float relDeg = (float)Math.toDegrees(relYaw);
+                    float next = clampAngle(relDeg + (float)Math.toDegrees(stepYaw));
+                    stepYaw = (float)Math.toRadians(next - relDeg);
                 }
                 if(Math.abs(stepYaw) > 1e-6f){
                     float torqueImp = Math.abs(stepYaw) / Math.max(1e-4f, dt);
                     if(maxMotorTorque > 0f && torqueImp > maxMotorTorque) stepYaw *= maxMotorTorque / torqueImp;
-                    com.hollow.core.Quat delta = com.hollow.core.Quat.fromAxisAngle(n.x, n.y, n.z, stepYaw);
+                    com.hollow.core.Quat delta = com.hollow.core.Quat.fromAxisAngle(n.x, n.y, n.z, (float)Math.toDegrees(stepYaw));
                     delta.mul(bodyB.entity.rotation);
                     bodyB.entity.rotation.set(delta).norm();
                     bodyB.entity.markDirtyDeep();
@@ -210,12 +209,12 @@ public final class Joints {
         }
 
         private float relativeYaw(){
+            // q_rel = qB * qA^-1 — then extract yaw from the relative quaternion
             com.hollow.core.Quat q = bodyB.entity.rotation.cpy();
-            com.hollow.core.Quat inv = bodyA.entity.rotation.cpy();
-            float w = inv.w, x = -inv.x, y = -inv.y, z = -inv.z;   // conjugate
-            // q_rel = qB * qA^-1 (yaw extraction)
-            float yaw = (float)Math.atan2(2f * (w * q.y + z * -q.x), 1f - 2f * (q.y * q.y + q.z * q.z));
-            yaw -= boundYawA;
+            com.hollow.core.Quat invA = bodyA.entity.rotation.cpy(); invA.invert();
+            q.mul(invA);
+            float yaw = (float)Math.atan2(2f * (q.w * q.y + q.z * q.x), 1f - 2f * (q.y * q.y + q.z * q.z));
+            yaw -= (float)Math.toRadians(boundYawA);
             return (float)Math.toDegrees(yaw);
         }
 
@@ -286,7 +285,7 @@ public final class Joints {
             }
             if(wB > 0f && !bodyB.kinematic){
                 bodyB.entity.position.addScaled(n, -corr * (wB / wSum));
-                bodyB.velocity.addScaled(n, bodyB.velocity.dot(n) * 0.5f);
+                bodyB.velocity.addScaled(n, -bodyB.velocity.dot(n) * 0.5f);
             }
             entity.markDirtyDeep(); bodyB.entity.markDirtyDeep();
             return d;

@@ -131,7 +131,7 @@ public final class AnimationV23 {
             if(autoDerive){
                 outTransDelta.set(pos).sub(j.restPos);
                 // rot delta = clipRot * inverse(restRot)
-                Quat invRest = j.restRot.invert();
+                Quat invRest = j.restRot.cpy().invert();
                 outRotDelta.set(rot.mul(invRest)).norm();
             } else {
                 outTransDelta.set(pos);
@@ -164,8 +164,19 @@ public final class AnimationV23 {
             AnimClip.Channel c = clip.channels.get(idx);
             if(c == null || c.translations == null) return out;
             float[] a = new float[3], b = new float[3];
-            clip.sampleTranslation(c, t0 % Math.max(0.01f, clip.duration), a);
-            clip.sampleTranslation(c, t1 % Math.max(0.01f, clip.duration), b);
+            float dur = Math.max(0.01f, clip.duration);
+            float ta = t0 % dur, tb = t1 % dur;
+            if(tb < ta){ // crossed the loop boundary: end segment + start segment
+                float[] mid = new float[3];
+                clip.sampleTranslation(c, ta, a);
+                clip.sampleTranslation(c, dur, mid);
+                clip.sampleTranslation(c, 0f, b);
+                out.set(mid[0]-a[0]+b[0], mid[1]-a[1]+b[1], mid[2]-a[2]+b[2]).scale(scale);
+                accumulated.add(out);
+                return out;
+            }
+            clip.sampleTranslation(c, ta, a);
+            clip.sampleTranslation(c, tb, b);
             out.set(b[0] - a[0], b[1] - a[1], b[2] - a[2]).scale(scale);
             accumulated.add(out);
             return out;
@@ -273,10 +284,13 @@ public final class AnimationV23 {
         public float smoothing = 8f;
         private float leanX = 0f, leanZ = 0f;    // smoothed lean angles (deg)
         private Vec3 lastVel = new Vec3();
+        private Vec3 lastPos = new Vec3();
+        private boolean lastPosInit = false;
 
         /** update from entity velocity; returns the lean rotation to compose onto the bone */
         public Quat update(Entity entity, float dt, Quat out){
-            Vec3 vel = entity.worldPosition().cpy().sub(entity.worldPosition());
+            Vec3 vel = entity.worldPosition().cpy().sub(lastPos);
+            lastPos.set(entity.worldPosition());
             // use CharacterController velocity when available, else estimate from position delta
             com.hollow.physics.CharacterController cc = entity.get(com.hollow.physics.CharacterController.class);
             if(cc != null) vel.set(cc.getVelocity());

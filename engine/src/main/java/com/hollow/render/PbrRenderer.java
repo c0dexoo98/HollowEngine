@@ -647,7 +647,7 @@ public final class PbrRenderer {
     }
 
     private LightRec obtainLight(){
-        if (lightCount < lightPool.size()) return lightPool.get(lightCount);
+        if (lightCount < lightPool.size()) return lightPool.get(lightCount++);
         LightRec r = new LightRec();
         lightPool.add(r);
         lightCount++;
@@ -726,6 +726,7 @@ public final class PbrRenderer {
         poolUsed = 0;
         opaqueList.clear(); maskList.clear(); blendList.clear(); waterList.clear();
         sceneAabbValid = false;
+        _camEye.set(cam.eye);
         for (Entity e : world.entities){
             if (!e.active || e.destroyed) continue;
             MeshComponent mc = e.get(MeshComponent.class);
@@ -771,18 +772,23 @@ public final class PbrRenderer {
     private void addItem(Entity e, MeshComponent mc, GpuMesh g, MaterialDef src, String matName,
                          boolean isWater, CameraData cam){
         e.updateWorld();
-        // frustum cull
+        DrawItem item = obtainItem();
+        // frustum cull + scene bounds
         if (g.boundsValid){
             AABB wb = e.worldAABB(g.localBounds);
-            if (cam.cull(wb)) return;
-            DrawItem d = obtainItem();
-            d.worldAabb.min.set(wb.min); d.worldAabb.max.set(wb.max);
+            if (cam.cull(wb)) { poolUsed--; return; }
+            item.worldAabb.min.set(wb.min); item.worldAabb.max.set(wb.max);
         } else {
-            DrawItem d = obtainItem();
-            d.worldAabb.reset();
-            d.worldAabb.expand(e.worldMatrix.translation());
+            item.worldAabb.reset();
+            item.worldAabb.expand(e.worldMatrix.translation());
         }
-        DrawItem item = itemPool.get(itemPool.size() - 1);
+        if (!sceneAabbValid){
+            sceneAabb.min.set(item.worldAabb.min);
+            sceneAabb.max.set(item.worldAabb.max);
+            sceneAabbValid = true;
+        } else {
+            sceneAabb.expand(item.worldAabb.min).expand(item.worldAabb.max);
+        }
 
         item.mesh = g;
         item.entity = e;
@@ -819,12 +825,15 @@ public final class PbrRenderer {
         }
 
         item.dist2 = e.worldPosition().dist2(_camEye);
-        _camEyeHolder = item; // placeholder to keep a single write path (see below)
+        // bucket: water / blended / alpha-masked / opaque
+        if (isWater) waterList.add(item);
+        else if (m.blend) blendList.add(item);
+        else if (m.alphaCutoff > 0f) maskList.add(item);
+        else opaqueList.add(item);
     }
 
-    /** camera eye is needed in addItem — passed via field to avoid changing many signatures */
+    /** camera eye is needed in addItem — set in collectItems each frame */
     private final Vec3 _camEye = new Vec3();
-    private DrawItem _camEyeHolder;
 
     private static void applyOverride(Material m, Map<String,Object> ov){
         if (ov == null) return;
@@ -1616,12 +1625,13 @@ public final class PbrRenderer {
             while (j < dl.quadCount && sameKey(dl.textures[j], key)) j++;
             int o = 0;
             for (int q = i; q < j; q++){
-                float x = dl.quads[q*10], y = dl.quads[q*10+1];
-                float w = dl.quads[q*10+2], h = dl.quads[q*10+3];
-                float u0 = dl.quads[q*10+4], v0 = dl.quads[q*10+5];
-                float u1 = dl.quads[q*10+6], v1 = dl.quads[q*10+7];
-                float r = dl.quads[q*10+8], g = dl.quads[q*10+9];
-                float b = dl.quads[q*10+10], a = dl.quads[q*10+11];
+                int qo = q * UiDrawList.STRIDE;
+                float x = dl.quads[qo], y = dl.quads[qo+1];
+                float w = dl.quads[qo+2], h = dl.quads[qo+3];
+                float u0 = dl.quads[qo+4], v0 = dl.quads[qo+5];
+                float u1 = dl.quads[qo+6], v1 = dl.quads[qo+7];
+                float r = dl.quads[qo+8], g = dl.quads[qo+9];
+                float b = dl.quads[qo+10], a = dl.quads[qo+11];
                 float[] B = uiBuf;
                 // tri1: (x,y)(x+w,y)(x,y+h)   tri2: (x+w,y)(x+w,y+h)(x,y+h)
                 putUiVertex(B, o,     x,     y,     u0, v0, r, g, b, a);

@@ -72,7 +72,7 @@ public final class EnvironmentPhysics {
             for(RigidBody rb : bodies){
                 if(rb.entity == null || rb.entity.destroyed || rb.kinematic) continue;
                 Vec3 p = rb.entity.position;
-                float r = rb.effectiveRadius() * Math.max(1e-3f, entity.worldScale().x);
+                float r = rb.effectiveRadius();   // body's own radius — water scale is unrelated
                 if(p.x < wb.min.x - r || p.x > wb.max.x + r) continue;
                 if(p.z < wb.min.z - r || p.z > wb.max.z + r) continue;
                 // submerged depth ratio: -1 fully out, 0 at waterline, 1 fully under

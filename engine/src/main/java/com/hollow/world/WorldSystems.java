@@ -50,7 +50,7 @@ public final class WorldSystems {
             out.kv("baseLevel", baseLevel); out.endObj();
         }
         @Override public void load(JsonV n){
-            flowDir.set(n.flt("flowDir.x", 0), n.flt("flowDir.y", 0), n.flt("flowDir.z", -1));
+            flowDir.set(arr3(n.get("flowDir"), 0f, 0f, -1f));
             flowSpeed = n.flt("flowSpeed", 0.5f); tide = n.bool("tide", false);
             tideAmplitude = n.flt("tideAmplitude", 0.4f); tidePeriodMinutes = n.flt("tidePeriodMinutes", 180f);
             baseLevel = n.flt("baseLevel", 0f);
@@ -147,7 +147,7 @@ public final class WorldSystems {
             out.kv("gustPeriodSec", gustPeriodSec); out.kv("turbulence", turbulence); out.endObj();
         }
         @Override public void load(JsonV n){
-            baseDir.set(n.flt("baseDir.x",1), n.flt("baseDir.y",0), n.flt("baseDir.z",0.3f));
+            baseDir.set(arr3(n.get("baseDir"), 1f, 0f, 0.3f));
             baseStrength = n.flt("baseStrength", 0.4f); gustStrength = n.flt("gustStrength", 0.6f);
             gustPeriodSec = n.flt("gustPeriodSec", 7f); turbulence = n.flt("turbulence", 0.25f);
         }
@@ -298,7 +298,7 @@ public final class WorldSystems {
             out.kv("zoneTag", zoneTag); out.kv("once", once); out.kv("requireTag", requireTag); out.endObj();
         }
         @Override public void load(JsonV n){
-            size.set(n.flt("size.x",4), n.flt("size.y",3), n.flt("size.z",4));
+            size.set(arr3(n.get("size"), 4f, 3f, 4f));
             onEnterEvent = n.str("onEnterEvent",""); onLeaveEvent = n.str("onLeaveEvent","");
             zoneTag = n.str("zoneTag",""); once = n.bool("once", false); requireTag = n.str("requireTag","");
         }
@@ -355,5 +355,20 @@ public final class WorldSystems {
             }
             currentWeight = bw;
         }
+    }
+
+    private static Vec3 arr3(Object o, float dx, float dy, float dz){
+        Vec3 v = new Vec3(dx, dy, dz);
+        if(o instanceof java.util.List<?> l && l.size() >= 3){
+            if(l.get(0) instanceof Number n0) v.x = n0.floatValue();
+            if(l.get(1) instanceof Number n1) v.y = n1.floatValue();
+            if(l.get(2) instanceof Number n2) v.z = n2.floatValue();
+        } else if(o instanceof java.util.Map<?,?> m){
+            Object x=m.get("x"), y=m.get("y"), z=m.get("z");
+            if(x instanceof Number nx) v.x=nx.floatValue();
+            if(y instanceof Number ny) v.y=ny.floatValue();
+            if(z instanceof Number nz) v.z=nz.floatValue();
+        }
+        return v;
     }
 }

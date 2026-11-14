@@ -36,6 +36,7 @@ public final class DayNightCycle extends Component {
 
     @Override public void onUpdate(float dt){
         tick(dt);
+        applyToEnvironment(ownerWorld());
     }
 
     /** advance clock by dt seconds (called by WorldClockSystem; safe to call directly) */

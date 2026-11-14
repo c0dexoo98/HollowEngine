@@ -58,7 +58,7 @@ public final class CollisionLib {
         // 9 cross axes
         for(Vec3 u : aAxes){
             for(Vec3 v : bAxes){
-                Vec3 axis = u.cross(v);
+                Vec3 axis = u.cpy().cross(v);               // cpy: Vec3.cross mutates this
                 if(axis.len2() < 1e-12f) continue;
                 if(!satAxis(axis, aAxes, a.halfExtents, bAxes, b.halfExtents, d, out)) return out;
                 if(out.penetration < bestPen){ bestPen = out.penetration; bestAxis.set(out.normal); }
@@ -67,7 +67,7 @@ public final class CollisionLib {
         out.hit = true;
         out.penetration = bestPen;
         out.normal.set(bestAxis);
-        if(d.dot(bestAxis) < 0f) out.normal.scale(-1f);   // ensure normal pushes A away from B
+        if(d.dot(bestAxis) > 0f) out.normal.scale(-1f);   // ensure normal pushes A away from B (B->A)
         return out;
     }
 
@@ -94,18 +94,29 @@ public final class CollisionLib {
         Vec3 la = inv.rotate(a.cpy().sub(box.center));
         Vec3 lb = inv.rotate(b.cpy().sub(box.center));
         Vec3 he = box.halfExtents;
-        Vec3 ab = lb.cpy().sub(la);
-        float t = MathX.clamp(-la.dot(ab) / Math.max(1e-9f, ab.len2()), 0f, 1f);
-        Vec3 cp = la.cpy().addScaled(ab, t);              // closest segment point to box center
+        // alternating segment<->box projection until converged (true closest pair,
+        // a single center-based sample misses diagonal contacts)
+        Vec3 p = la.cpy().add(lb).scale(0.5f);
+        for(int it = 0; it < 8; it++){
+            Vec3 clamped = new Vec3(
+                MathX.clamp(p.x, -he.x, he.x),
+                MathX.clamp(p.y, -he.y, he.y),
+                MathX.clamp(p.z, -he.z, he.z));
+            Vec3 ab = lb.cpy().sub(la);
+            float t = MathX.clamp(clamped.cpy().sub(la).dot(ab) / Math.max(1e-9f, ab.len2()), 0f, 1f);
+            Vec3 np = la.cpy().addScaled(ab, t);
+            if(np.dist2(p) < 1e-10f){ p = np; break; }
+            p = np;
+        }
         Vec3 clamped = new Vec3(
-            MathX.clamp(cp.x, -he.x, he.x),
-            MathX.clamp(cp.y, -he.y, he.y),
-            MathX.clamp(cp.z, -he.z, he.z));
-        float dist = cp.dist(clamped);
+            MathX.clamp(p.x, -he.x, he.x),
+            MathX.clamp(p.y, -he.y, he.y),
+            MathX.clamp(p.z, -he.z, he.z));
+        float dist = p.dist(clamped);
         if(dist >= r) return -1f;
         Vec3 nLocal = dist < 1e-6f
             ? new Vec3(0, 1, 0)
-            : cp.cpy().sub(clamped).scale(1f / dist);
+            : p.cpy().sub(clamped).scale(1f / dist);
         outNormal.set(box.rotation.rotate(nLocal));       // world normal out of the box
         return r - dist;
     }
@@ -162,8 +173,10 @@ public final class CollisionLib {
         /** SAT overlap in the shared projection plane (conservative: different planes → pass) */
         public boolean overlaps(ConvexHull o){
             if(verts.size() < 3 || o.verts.size() < 3) return false;
-            // coplanarity check: opposite-side point sets → miss
-            if(sameSideAll(verts, o.normal, o.planeD) == 0 && coplanarDist(o.normal, o.planeD, verts) > 1e-3f) return false;
+            // plane separation: A entirely on one side of B's plane (and far from it) → miss;
+            // straddling (0) or coplanar (2) → keep. Symmetric check against A's plane.
+            if(sameSideAll(verts, o.normal, o.planeD) != 0 && coplanarDist(o.normal, o.planeD, verts) > 1e-3f) return false;
+            if(sameSideAll(o.verts, normal, planeD) != 0 && coplanarDist(normal, planeD, o.verts) > 1e-3f) return false;
             int dropA = dominantDrop(normal), dropB = dominantDrop(o.normal);
             if(dropA != dropB) return true;
             List<float[]> A = new ArrayList<>(), B = new ArrayList<>();
@@ -288,7 +301,7 @@ public final class CollisionLib {
             Vec3 v0 = new Vec3(v0x, v0y, v0z), v1 = new Vec3(v1x, v1y, v1z), v2 = new Vec3(v2x, v2y, v2z);
             Vec3 cpTri = new Vec3(), cpSeg = new Vec3();
             closestTriSeg(v0, v1, v2, a, b, cpTri, cpSeg);
-            Vec3 d = cpTri.cpy().sub(cpSeg);
+            Vec3 d = cpSeg.cpy().sub(cpTri);            // surface -> object: push direction
             float dist = d.len();
             if(dist < r && r - dist > bestPen){
                 bestPen = r - dist;
@@ -391,8 +404,16 @@ public final class CollisionLib {
             float pen = (h + r) - p.y;
             if(pen <= 0f) return -1f;
             float eps = cellSize * 0.5f;
-            float hx = heightAt(p.x + eps, p.z) - heightAt(p.x - eps, p.z);
-            float hz = heightAt(p.x, p.z + eps) - heightAt(p.x, p.z - eps);
+            float hc = heightAt(p.x, p.z);
+            float hxp = heightAt(p.x + eps, p.z), hxm = heightAt(p.x - eps, p.z);
+            float hzp = heightAt(p.x, p.z + eps), hzm = heightAt(p.x, p.z - eps);
+            // off-grid samples: treat as flat (reuse center height) instead of -inf → NaN
+            if(hxp == Float.NEGATIVE_INFINITY) hxp = hc;
+            if(hxm == Float.NEGATIVE_INFINITY) hxm = hc;
+            if(hzp == Float.NEGATIVE_INFINITY) hzp = hc;
+            if(hzm == Float.NEGATIVE_INFINITY) hzm = hc;
+            float hx = hxp - hxm;
+            float hz = hzp - hzm;
             outNormal.set(-hx / (2f * eps), 1f, -hz / (2f * eps)).norm();
             return pen;
         }

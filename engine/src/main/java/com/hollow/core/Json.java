@@ -109,7 +109,7 @@ public final class Json {
             while(i<n){ char c=s.charAt(i); if((c>='0'&&c<='9')||c=='+'||c=='-'||c=='.'||c=='e'||c=='E') i++; else break; }
             String t = s.substring(st,i);
             if(t.isEmpty()||t.equals("-")) throw err("invalid number");
-            try { return Double.parseDouble(t); } catch(Exception e){ throw err("invalid number '"+t+"'"); }
+            try { double v = Double.parseDouble(t); if(!Double.isFinite(v)) throw err("invalid number '"+t+"'"); return v; } catch(IllegalArgumentException e){ throw e; } catch(Exception e){ throw err("invalid number '"+t+"'"); }
         }
     }
 

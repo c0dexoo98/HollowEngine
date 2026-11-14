@@ -21,9 +21,12 @@ public final class ArenaAllocator {
 
     public int alloc(int bytes, int alignment){
         requireActive();
+        if(alignment <= 0 || (alignment & (alignment - 1)) != 0)
+            throw new IllegalArgumentException("alignment must be a positive power of two: " + alignment);
         int aligned = (offset + (alignment - 1)) & ~(alignment - 1);
+        if(aligned < 0 || aligned > memory.length) throw new OutOfMemoryError("arena exhausted");
         int end = aligned + bytes;
-        if(end > memory.length) throw new OutOfMemoryError("arena exhausted: need " + bytes + " have " + (memory.length - aligned));
+        if(end < 0 || end > memory.length) throw new OutOfMemoryError("arena exhausted: need " + bytes + " have " + (memory.length - aligned));
         offset = end;
         if(offset > highWater) highWater = offset;
         return aligned;

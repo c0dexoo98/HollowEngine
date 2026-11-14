@@ -112,7 +112,7 @@ public final class Commands {
                     dst = dst.replaceAll("\\.(png|jpg|jpeg)$", ".hvt");
                     ImageData img = ImageDecoder.get().decodeFile(src, fs);
                     long srcSize = fs.read(src).length;
-                    if(fs.exists(dst) && sameSize(fs, src, srcSize)){ skipped++; }
+                    if(fs.exists(dst) && sameSize(fs, dst, srcSize)){ skipped++; }
                     else { img.save(dst, fs); converted++; }
                     manifestItems.add(linked("src",src,"dst",dst,"type","texture","w",img.width,"h",img.height));
                 } else if(lower.endsWith(".wav") || lower.endsWith(".ogg") || lower.endsWith(".hvm") || lower.endsWith(".hvt")

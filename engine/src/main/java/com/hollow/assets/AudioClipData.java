@@ -48,7 +48,7 @@ public final class AudioClipData {
             } else if(bits == 16){
                 int n = dataLen/2;
                 pcm = new float[n];
-                for(int i=0;i<n;i++) pcm[i] = d.readShort() / 32767f;
+                for(int i=0;i<n;i++) pcm[i] = (short)((d.readByte() & 0xFF) | ((d.readByte() & 0xFF) << 8)) / 32767f; // WAV: little-endian
             } else if(bits == 8){
                 pcm = new float[dataLen];
                 for(int i=0;i<dataLen;i++) pcm[i] = (d.readByte() & 0xFF)/255f*2f - 1f;

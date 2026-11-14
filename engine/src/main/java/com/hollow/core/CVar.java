@@ -17,22 +17,26 @@ public final class CVar {
     public final Type type;
     public final String help;
     private int iv; private float fv; private boolean bv; private String sv;
-    private final int minI, maxI; private final float minF, maxF;
-    private final List<java.util.function.Consumer<CVar>> listeners = new ArrayList<>();
+    private final int minI, maxI; private final float minF, maxF;    private final List<java.util.function.Consumer<CVar>> listeners = new ArrayList<>();
     private boolean dirty = false; // changed since last save
 
     private static final Map<String, CVar> REGISTRY = new LinkedHashMap<>();
 
     private CVar(String name, Type type, String help){
+        this(name, type, help, Integer.MIN_VALUE, Integer.MAX_VALUE, -Float.MAX_VALUE, Float.MAX_VALUE);
+    }
+    private CVar(String name, Type type, String help, int minI, int maxI, float minF, float maxF){
         this.name = name; this.type = type; this.help = help;
-        this.minI = Integer.MIN_VALUE; this.maxI = Integer.MAX_VALUE;
-        this.minF = -Float.MAX_VALUE; this.maxF = Float.MAX_VALUE;
+        this.minI = minI; this.maxI = maxI; this.minF = minF; this.maxF = maxF;
     }
 
     // ---------------- registration ----------------
     public static CVar registerInt(String name, int def, String help){ return register(name, Type.INT, def, 0f, null, help); }
     public static CVar registerInt(String name, int def, int min, int max, String help){
-        CVar v = register(name, Type.INT, def, 0f, null, help);
+        CVar existing = REGISTRY.get(name);
+        if(existing != null) return existing; // idempotent registration
+        CVar v = new CVar(name, Type.INT, help, min, max, -Float.MAX_VALUE, Float.MAX_VALUE);
+        synchronized(CVar.class){ REGISTRY.put(name, v); }
         return v;
     }
     public static CVar registerFloat(String name, float def, String help){ return register(name, Type.FLOAT, 0, def, null, help); }

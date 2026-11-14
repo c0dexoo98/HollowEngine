@@ -43,9 +43,7 @@ public final class EntityPool {
 
     /** return an entity to the pool */
     public void release(Entity e){
-        if(e == null || e.destroyed && !world.entities.contains(e)){
-            // tolerate double release silently
-        }
+        if(e == null || (e.destroyed && !world.entities.contains(e))) return;  // double release: ignore
         e.active = false;
         e.destroyed = true;                     // hint for stale-reference checks
         world.entities.remove(e);

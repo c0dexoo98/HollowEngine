@@ -85,7 +85,7 @@ public final class GltfLoader {
                 } else if (ctype == CHUNK_BIN && binChunk == null) {
                     binChunk = Arrays.copyOfRange(raw, dataOff, dataOff + len);
                 }
-                off = dataOff + len;
+                off = dataOff + ((len + 3) & ~3);  // spec: chunks are padded to 4-byte boundaries
             }
             if (jsonBytes == null) throw new IOException("GLB without JSON chunk: " + path);
         } else {

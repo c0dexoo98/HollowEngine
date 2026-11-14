@@ -67,7 +67,7 @@ public final class UIManager {
 
     /** toast host lives across loads (auto-created) */
     public ToastHost toasts(){
-        if(toastHost == null){ toastHost = new ToastHost(); toastHost.id = "__toasts"; }
+        if(toastHost == null){ toastHost = new ToastHost(); toastHost.id = "__toasts"; toastHost.anchorsSet(0,0,1,1); }
         return toastHost;
     }
 
@@ -584,7 +584,7 @@ public final class UIManager {
         if(an instanceof Map){
             Map<String, Object> am = Json.obj(an);
             w.anchorsSet((float) Json.num(am.get("l"), 0), (float) Json.num(am.get("t"), 0),
-                    (float) Json.num(am.get("r"), am.containsKey("w") ? 0 : w.anchors[2]),
+                    (float) Json.num(am.get("r"), am.containsKey("w") ? 1f : (w.anchors[2] == 0f ? 1f : w.anchors[2])),
                     (float) Json.num(am.get("b"), am.containsKey("h") ? 0 : w.anchors[3]));
         } else if(an instanceof List && Json.arr(an).size() >= 4){
             List<Object> al = Json.arr(an);

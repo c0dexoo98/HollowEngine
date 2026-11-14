@@ -71,9 +71,9 @@ public final class Vehicle extends Component {
         float targetSteer = steerInput * steerAngleMax;
         steerAngle = MathX.approach(steerAngle, targetSteer, 120f * dt);
 
-        // chassis orientation vectors (yaw only — arcade)
+        // chassis orientation vectors (yaw only — arcade); front = -Z (engine convention)
         float yaw = entity.rotation.yawDeg();
-        Vec3 fwd = new Vec3((float)Math.sin(Math.toRadians(yaw)), 0, (float)Math.cos(Math.toRadians(yaw)));
+        Vec3 fwd = new Vec3(-(float)Math.sin(Math.toRadians(yaw)), 0, -(float)Math.cos(Math.toRadians(yaw)));
         Vec3 right = new Vec3(-fwd.z, 0, fwd.x);
 
         speed = chassis.velocity.dot(fwd);

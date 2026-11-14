@@ -142,7 +142,7 @@ public final class NetSystems {
             public int flags = 0;                                     // bitmask of changed fields
         }
         public static ByteBuffer encode(Map<String,State> prev, Map<String,State> cur){
-            ByteBuffer bb = ByteBuffer.allocate(4 + cur.size() * 24);
+            ByteBuffer bb = ByteBuffer.allocate(4 + cur.size() * 21 + 256 + totalNameBytes(cur));
             bb.putInt(cur.size());
             for(Map.Entry<String,State> e : cur.entrySet()){
                 State p = prev.get(e.getKey());
@@ -392,5 +392,11 @@ public final class NetSystems {
             this.ticks = ticks;
             return avgTickMs;
         }
+    }
+
+    private static int totalNameBytes(java.util.Map<String,?> cur){
+        int n = 0;
+        for(String k : cur.keySet()) n += k == null ? 0 : k.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+        return n;
     }
 }

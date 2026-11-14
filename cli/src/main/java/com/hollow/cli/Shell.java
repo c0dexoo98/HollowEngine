@@ -43,13 +43,14 @@ public final class Shell {
         for(int i=0;i<args.length-1;i++){
             if(args[i].equals("--file") || args[i].equals("-f")){
                 String text = java.nio.file.Files.readString(java.nio.file.Paths.get(args[i+1]));
+                int failures = 0;
                 for(String line : text.split("\n")){
                     String t = line.trim();
                     if(t.isEmpty() || t.startsWith("#") || t.startsWith("//")) continue;
-                    shell.dispatchLine(t);
+                    int rc = shell.dispatchLine(t); if(rc != 0) failures++;
                 }
                 shell.console.execute("engine stop");
-                return 0;
+                return failures == 0 ? 0 : 1;
             }
         }
         shell.banner();
