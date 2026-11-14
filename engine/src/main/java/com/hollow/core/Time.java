@@ -25,6 +25,7 @@ public final class Time {
         accumulator += deltaTime;
         int n = 0;
         while(accumulator >= fixedDelta && n < 8){ accumulator -= fixedDelta; n++; }
+        if(accumulator >= fixedDelta) accumulator = fixedDelta * 0.999f;   // hitch cap: keep alpha in [0,1)
         return n;
     }
     public void advanceFixed(){

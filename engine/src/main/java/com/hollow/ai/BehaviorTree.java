@@ -103,6 +103,7 @@ public final class BehaviorTree {
 
     private void resetSub(String id){
         NS s = state.remove(id);
+        state.remove(id + ":done");          // parallel completion memory
         BTNode n = nodes.get(id);
         if(s == null || n == null) return;
         for(String c : n.children) resetSub(c);
@@ -311,11 +312,18 @@ public final class BehaviorTree {
         if(n.children.isEmpty()) return FAILURE;
         boolean anySuccess = false, anyFailure = false, anyRunning = false;
         int succ = 0, fail = 0;
-        for(String c : n.children){
+        NS p = ns(n.id + ":done");           // per-child terminal memory — finished children don't re-run
+        if(p.order == null || p.order.length != n.children.size()) p.order = new int[n.children.size()];
+        for(int ci = 0; ci < n.children.size(); ci++){
+            String c = n.children.get(ci);
+            if(p.order[ci] != 0) {           // 1=SUCCESS 2=FAILURE recorded — count and continue
+                if(p.order[ci] == 1){ anySuccess = true; succ++; } else { anyFailure = true; fail++; }
+                continue;
+            }
             int r = run(c, a, dt);
             if(r == RUNNING) anyRunning = true;
-            else if(r == SUCCESS){ anySuccess = true; succ++; }
-            else { anyFailure = true; fail++; }
+            else if(r == SUCCESS){ anySuccess = true; succ++; p.order[ci] = 1; }
+            else { anyFailure = true; fail++; p.order[ci] = 2; }
         }
         boolean anyPolicy = "any".equalsIgnoreCase(n.policy);
         if(anyPolicy){

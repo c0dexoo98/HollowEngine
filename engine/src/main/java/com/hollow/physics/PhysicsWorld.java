@@ -25,6 +25,9 @@ import java.util.Map;
  *  Statics/triggers/raycast/character controller unchanged from v1 (see history).
  */
 public final class PhysicsWorld {
+    /** v2.5.1: periodic joint rescan so runtime ragdolls get solved (cheap: every 30 ticks) */
+    private static final int JOINT_RESCAN_INTERVAL = 30;
+    private int jointRescanCounter = 0;
     public final Vec3 gravity = new Vec3(0, -9.81f, 0);
 
     public static final int KIND_BOX = 0, KIND_SPHERE = 1, KIND_CAPSULE = 2;
@@ -181,6 +184,13 @@ public final class PhysicsWorld {
         float sdt = dt / n;
         for(int s = 0; s < n; s++) subStep(sdt);
         updateTriggers();
+        // PHY-019 (v2.5.1): runtime-activated ragdolls create joints after onWorldLoaded —
+        // cheap periodic rescan picks them up (every 30 updates)
+        if(--jointRescanCounter <= 0){
+            World w = com.hollow.game.GameApp.instance != null ? com.hollow.game.GameApp.instance.world : null;
+            if(w != null) joints.collect(w);
+            jointRescanCounter = JOINT_RESCAN_INTERVAL;
+        }
     }
 
     private void subStep(float dt){

@@ -45,13 +45,14 @@ public final class UIWidgets2 {
             out.addQuad(key, x2 - cx, dy, cx, cy, um, v0, u1, vm, rgba);                  // TR
             out.addQuad(key, dx, y2 - cy, cx, cy, u0, vm, um, v1, rgba);                  // BL
             out.addQuad(key, x2 - cx, y2 - cy, cx, cy, um, vm, u1, v1, rgba);             // BR
-            // edges
-            out.addQuad(key, mx, dy, Math.max(0f, w - cx * 2), cy, um, v0, um, vm, rgba); // T
-            out.addQuad(key, mx, y2 - cy, Math.max(0f, w - cx * 2), cy, um, vm, um, v1, rgba); // B
-            out.addQuad(key, dx, my, cx, Math.max(0f, h - cy * 2), u0, vm, um, um, rgba); // L
-            out.addQuad(key, x2 - cx, my, cx, Math.max(0f, h - cy * 2), um, vm, u1, um, rgba); // R
+            // edges — far UV is the MIRRORED split (um2/vm2), not the mid itself
+            float um2 = u1 - (um - u0), vm2 = v1 - (vm - v0);
+            out.addQuad(key, mx, dy, Math.max(0f, w - cx * 2), cy, um, v0, um2, vm, rgba); // T
+            out.addQuad(key, mx, y2 - cy, Math.max(0f, w - cx * 2), cy, um, vm2, um2, v1, rgba); // B
+            out.addQuad(key, dx, my, cx, Math.max(0f, h - cy * 2), u0, vm, um, vm2, rgba); // L
+            out.addQuad(key, x2 - cx, my, cx, Math.max(0f, h - cy * 2), um, vm, u1, vm2, rgba); // R
             // center
-            out.addQuad(key, mx, my, Math.max(0f, w - cx * 2), Math.max(0f, h - cy * 2), um, vm, um, um, rgba);
+            out.addQuad(key, mx, my, Math.max(0f, w - cx * 2), Math.max(0f, h - cy * 2), um, vm, um2, vm2, rgba);
         }
     }
 

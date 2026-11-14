@@ -82,10 +82,31 @@ public final class World {
 
     public void update(float dt){
         flushSpawn();                                        // OBJ-021
-        for(Entity e : entities){
-            if(!e.active || e.destroyed) continue;
-            e.updateWorld();
-            for(Component c : e.allComponents()) c.forEachDeep(ch -> ch.onUpdate(dt));   // OBJ-020 deep
+        // snapshot iteration: event handlers/scripts may spawn entities mid-frame
+        // (World.spawn adds directly to `entities` -> ConcurrentModificationException otherwise)
+        List<Entity> frame = entities.size() > 64 ? new ArrayList<>(entities) : entities;
+        boolean snapshot = frame != entities;
+        if(snapshot){
+            for(Entity e : frame){
+                if(!e.active || e.destroyed) continue;
+                e.updateWorld();
+                for(Component c : e.allComponents()) c.forEachDeep(ch -> ch.onUpdate(dt));   // OBJ-020 deep
+            }
+        } else {
+            for(Entity e : frame){
+                if(!e.active || e.destroyed) continue;
+                e.updateWorld();
+                for(Component c : e.allComponents()) c.forEachDeep(ch -> ch.onUpdate(dt));   // OBJ-020 deep
+                if(entities.size() != frame.size()){          // spawned this tick — iterate rest by index
+                    for(int i = entities.indexOf(e) + 1; i < entities.size(); i++){
+                        Entity ne = entities.get(i);
+                        if(!ne.active || ne.destroyed) continue;
+                        ne.updateWorld();
+                        for(Component c : ne.allComponents()) c.forEachDeep(ch -> ch.onUpdate(dt));
+                    }
+                    break;
+                }
+            }
         }
         flushDestroy();
     }

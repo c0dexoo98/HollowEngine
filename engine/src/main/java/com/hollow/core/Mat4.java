@@ -58,28 +58,30 @@ public final class Mat4 {
         r.m[12] = pos.x;         r.m[13] = pos.y;           r.m[14] = pos.z;            r.m[15]=1;
         return r;
     }
+    /** this = this * o (column-major; standard post-multiply) */
     public Mat4 mul(Mat4 o){
         float[] a = this.m, b = o.m;
-        float r00=a[0]*b[0]+a[1]*b[4]+a[2]*b[8]+a[3]*b[12];
-        float r01=a[0]*b[1]+a[1]*b[5]+a[2]*b[9]+a[3]*b[13];
-        float r02=a[0]*b[2]+a[1]*b[6]+a[2]*b[10]+a[3]*b[14];
-        float r03=a[0]*b[3]+a[1]*b[7]+a[2]*b[11]+a[3]*b[15];
-        float r10=a[4]*b[0]+a[5]*b[4]+a[6]*b[8]+a[7]*b[12];
-        float r11=a[4]*b[1]+a[5]*b[5]+a[6]*b[9]+a[7]*b[13];
-        float r12=a[4]*b[2]+a[5]*b[6]+a[6]*b[10]+a[7]*b[14];
-        float r13=a[4]*b[3]+a[5]*b[7]+a[6]*b[11]+a[7]*b[15];
-        float r20=a[8]*b[0]+a[9]*b[4]+a[10]*b[8]+a[11]*b[12];
-        float r21=a[8]*b[1]+a[9]*b[5]+a[10]*b[9]+a[11]*b[13];
-        float r22=a[8]*b[2]+a[9]*b[6]+a[10]*b[10]+a[11]*b[14];
-        float r23=a[8]*b[3]+a[9]*b[7]+a[10]*b[11]+a[11]*b[15];
-        float r30=a[12]*b[0]+a[13]*b[4]+a[14]*b[8]+a[15]*b[12];
-        float r31=a[12]*b[1]+a[13]*b[5]+a[14]*b[9]+a[15]*b[13];
-        float r32=a[12]*b[2]+a[13]*b[6]+a[14]*b[10]+a[15]*b[14];
-        float r33=a[12]*b[3]+a[13]*b[7]+a[14]*b[11]+a[15]*b[15];
-        m[0]=r00; m[1]=r01; m[2]=r02; m[3]=r03;
-        m[4]=r10; m[5]=r11; m[6]=r12; m[7]=r13;
-        m[8]=r20; m[9]=r21; m[10]=r22; m[11]=r23;
-        m[12]=r30; m[13]=r31; m[14]=r32; m[15]=r33;
+        // product P = A*B in column-major: P[row + 4*col] = sum_k a[row + 4k]*b[k + 4*col]
+        float p0 =a[0]*b[0]+a[4]*b[1]+a[8]*b[2]+a[12]*b[3];
+        float p1 =a[1]*b[0]+a[5]*b[1]+a[9]*b[2]+a[13]*b[3];
+        float p2 =a[2]*b[0]+a[6]*b[1]+a[10]*b[2]+a[14]*b[3];
+        float p3 =a[3]*b[0]+a[7]*b[1]+a[11]*b[2]+a[15]*b[3];
+        float p4 =a[0]*b[4]+a[4]*b[5]+a[8]*b[6]+a[12]*b[7];
+        float p5 =a[1]*b[4]+a[5]*b[5]+a[9]*b[6]+a[13]*b[7];
+        float p6 =a[2]*b[4]+a[6]*b[5]+a[10]*b[6]+a[14]*b[7];
+        float p7 =a[3]*b[4]+a[7]*b[5]+a[11]*b[6]+a[15]*b[7];
+        float p8 =a[0]*b[8]+a[4]*b[9]+a[8]*b[10]+a[12]*b[11];
+        float p9 =a[1]*b[8]+a[5]*b[9]+a[9]*b[10]+a[13]*b[11];
+        float p10=a[2]*b[8]+a[6]*b[9]+a[10]*b[10]+a[14]*b[11];
+        float p11=a[3]*b[8]+a[7]*b[9]+a[11]*b[10]+a[15]*b[11];
+        float p12=a[0]*b[12]+a[4]*b[13]+a[8]*b[14]+a[12]*b[15];
+        float p13=a[1]*b[12]+a[5]*b[13]+a[9]*b[14]+a[13]*b[15];
+        float p14=a[2]*b[12]+a[6]*b[13]+a[10]*b[14]+a[14]*b[15];
+        float p15=a[3]*b[12]+a[7]*b[13]+a[11]*b[14]+a[15]*b[15];
+        m[0]=p0; m[1]=p1; m[2]=p2; m[3]=p3;
+        m[4]=p4; m[5]=p5; m[6]=p6; m[7]=p7;
+        m[8]=p8; m[9]=p9; m[10]=p10; m[11]=p11;
+        m[12]=p12; m[13]=p13; m[14]=p14; m[15]=p15;
         return this;
     }
     public Vec3 transformPoint(Vec3 p){
@@ -167,10 +169,12 @@ public final class Mat4 {
         Mat4 r = perspective(fovYDeg, aspect, near, far);
         // vertex shader must post-warp gl_Position.z with: z = log(max(1e-6, w + 1)) * logC - 1
         // we store logC in an unused slot for the shader to pick up.
-        r.m[9] = logC;
+        // logC passed through a side field — m[9] is a live projection entry and must stay 0
+        r.logDepthC = logC;
         return r;
     }
 
     /** extracts the log-depth constant stored by {@link #perspectiveLogDepth} */
-    public float logDepthC(){ return m[9]; }
+    private float logDepthC = 0f;
+    public float logDepthC(){ return logDepthC; }
 }

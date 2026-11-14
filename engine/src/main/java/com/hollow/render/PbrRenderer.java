@@ -1304,6 +1304,7 @@ public final class PbrRenderer {
         GLES30.glDrawArrays(GLES30.GL_LINES, 0, lines * 2);
         stats.drawCalls++;
         GLES30.glDepthMask(true);
+        DebugDraw.clear();   // drain — queue is per-frame (was leaking all lines forever)
     }
 
     // ===================================================================

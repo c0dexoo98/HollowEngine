@@ -74,6 +74,7 @@ public final class UIManager {
     public void update(float dt){
         uiTime += dt;
         Tween.updateAll(dt);
+        UISystems.UiTween.updateRegistry(dt);   // v2.5.1: the UiTween registry was never pumped
         if(root != null) root.updateTree(dt, this);
         if(toastHost != null) toastHost.updateToasts(dt);
         // focused text field consumes typed chars from the framework input layer

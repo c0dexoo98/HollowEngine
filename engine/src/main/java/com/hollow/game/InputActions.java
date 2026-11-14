@@ -86,6 +86,7 @@ public final class InputActions {
         String a = keyBind.get(key);
         if(a == null) a = keyBind.get(key.toLowerCase());
         if(a != null) setButton(a, down);
+        else if(down && (key.equals("BACKSPACE") || key.equals("backspace") || key.equals("\b"))) typedText.append('\b');
         else if(key.length()==1 && down) typedText.append(key);
     }
 

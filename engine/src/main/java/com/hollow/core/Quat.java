@@ -26,11 +26,12 @@ public final class Quat {
         float cr=(float)Math.cos(hr), sr=(float)Math.sin(hr);
         float cp=(float)Math.cos(hp), sp=(float)Math.sin(hp);
         float cy=(float)Math.cos(hy), sy=(float)Math.sin(hy);
+        // q = Ry(yaw) * Rx(pitch) * Rz(roll) — as documented (was ZYX: pitch rotated around Y!)
         return new Quat(
-            sr*cp*cy - cr*sp*sy,
-            cr*sp*cy + sr*cp*sy,
-            cr*cp*sy - sr*sp*cy,
-            cr*cp*cy + sr*sp*sy);
+            cy*sp*cr + sy*cp*sr,
+            sy*cp*cr - cy*sp*sr,
+            cy*cp*sr - sy*sp*cr,
+            cy*cp*cr + sy*sp*sr);
     }
     /** yaw (deg) around Y only */
     public static Quat fromYaw(float yawDeg){ return fromAxisAngle(0,1,0,yawDeg); }
@@ -96,12 +97,12 @@ public final class Quat {
     public Vec3 right(){ return rotate(new Vec3(1,0,0)); }
 
     public float yawDeg(){
-        // extract yaw from rotation matrix
-        float m11 = 1 - 2*(y*y+z*z), m13 = 2*(x*z + w*y);
-        return (float)Math.toDegrees(Math.atan2(-m13, m11));
+        // extract yaw from rotation matrix (Y-X-Z order, matches fromEuler)
+        float m02 = 2*(x*z + w*y), m00 = 1 - 2*(x*x + y*y);
+        return (float)Math.toDegrees(Math.atan2(m02, m00));
     }
     public float pitchDeg(){
-        float m23 = 2*(y*z + w*x);
+        float m23 = 2*(y*z - w*x);
         return (float)Math.toDegrees(Math.asin(Math.max(-1f, Math.min(1f, -m23))));
     }
 }

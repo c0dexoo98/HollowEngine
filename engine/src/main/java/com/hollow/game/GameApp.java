@@ -64,6 +64,7 @@ public abstract class GameApp {
             World w = Scene.load(path, svc.fs);
             this.world = w;
             this.currentScenePath = path;
+            this.activeCamera = null;   // v2.5.1: onWorldLoaded re-picks; stale camera streamed the old scene
             EngineBootstrap.onWorldLoaded(services(), w);
             long t1 = System.nanoTime();
             Log.i("GameApp", "scene loaded: " + path + " entities=" + w.count() + " in " + (t1-t0)/1_000_000 + "ms");

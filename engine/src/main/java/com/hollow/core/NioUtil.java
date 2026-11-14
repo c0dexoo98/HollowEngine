@@ -11,12 +11,16 @@ public final class NioUtil {
     private NioUtil() {}
 
     public static FloatBuffer floatBuffer(int floats){
-        return ByteBuffer.allocateDirect(Math.max(4, floats * 4))
+        long bytes = (long) floats * 4;
+        if(bytes > Integer.MAX_VALUE) throw new IllegalArgumentException("floatBuffer too large: " + floats);
+        return ByteBuffer.allocateDirect((int) Math.max(4, bytes))
             .order(ByteOrder.nativeOrder()).asFloatBuffer();
     }
 
     public static ShortBuffer shortBuffer(int shorts){
-        return ByteBuffer.allocateDirect(Math.max(2, shorts * 2))
+        long bytes = (long) shorts * 2;
+        if(bytes > Integer.MAX_VALUE) throw new IllegalArgumentException("shortBuffer too large: " + shorts);
+        return ByteBuffer.allocateDirect((int) Math.max(2, bytes))
             .order(ByteOrder.nativeOrder()).asShortBuffer();
     }
 

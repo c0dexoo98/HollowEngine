@@ -265,8 +265,17 @@ public final class Animator extends Component {
             sRot[i].set(j.restRot);
             sScl[i].set(j.restScale);
         }
-        // accumulate weighted samples (back-to-front: smallest weight first so dominant wins)
-        for(int i = wr.count - 1; i >= 0; i--){
+        // accumulate weighted samples, normalized by total weight (rest pose only fills
+        // channels no clip animates — a lerp-from-rest chain leaks rest weight into blends)
+        float wSum = 0f;
+        for(int i = 0; i < wr.count; i++) wSum += wr.weights[i];
+        if(wSum <= 1e-5f) wSum = 1e-5f;
+        float[] accPos = new float[jointCount * 3];
+        float[] accScl = new float[jointCount * 3];
+        float[] accRot = new float[jointCount * 4];
+        float[] chWeight = new float[jointCount];
+        Quat q1 = new Quat(), q2 = new Quat();
+        for(int i = 0; i < wr.count; i++){
             AnimClip c = clips.get(wr.clips[i]);
             if(c == null) continue;
             float t = clipClocks.getOrDefault(wr.clips[i], 0f);
@@ -278,17 +287,36 @@ public final class Animator extends Component {
                 if(ch.times == null || ch.times.length == 0) continue;
                 if(ch.translations != null && ch.translations.length >= 3){
                     c.sampleTranslation(ch, t, tr);
-                    sPos[ji].set(MathX.lerp(sPos[ji].x, tr[0], wgt), MathX.lerp(sPos[ji].y, tr[1], wgt), MathX.lerp(sPos[ji].z, tr[2], wgt));
+                    accPos[ji*3] += tr[0]*wgt; accPos[ji*3+1] += tr[1]*wgt; accPos[ji*3+2] += tr[2]*wgt;
+                    chWeight[ji] += wgt;
                 }
                 if(ch.scales != null && ch.scales.length >= 3){
                     c.sampleScale(ch, t, sc);
-                    sScl[ji].set(MathX.lerp(sScl[ji].x, sc[0], wgt), MathX.lerp(sScl[ji].y, sc[1], wgt), MathX.lerp(sScl[ji].z, sc[2], wgt));
+                    accScl[ji*3] += sc[0]*wgt; accScl[ji*3+1] += sc[1]*wgt; accScl[ji*3+2] += sc[2]*wgt;
                 }
                 if(ch.rotations != null && ch.rotations.length >= 4){
                     c.sampleRotation(ch, t, bwQuat);
-                    sRot[ji].slerp(bwQuat, wgt);
+                    q1.set(0,0,0,1).slerp(bwQuat, MathX.clamp(wgt / Math.max(wSum, chWeight[ji] + wgt), 0f, 1f));
+                    // weighted quat blend: normalize lerp accumulation (nlerp — stable at gameplay scale)
+                    if(chWeight[ji] == 0f && accRot[ji*4+3] == 0f && accRot[ji*4] == 0f && accRot[ji*4+1] == 0f && accRot[ji*4+2] == 0f){
+                        accRot[ji*4]=bwQuat.x*wgt; accRot[ji*4+1]=bwQuat.y*wgt; accRot[ji*4+2]=bwQuat.z*wgt; accRot[ji*4+3]=bwQuat.w*wgt;
+                    } else {
+                        q2.set(accRot[ji*4], accRot[ji*4+1], accRot[ji*4+2], accRot[ji*4+3]);
+                        if(q2.dot(bwQuat) < 0f){ bwQuat.x=-bwQuat.x; bwQuat.y=-bwQuat.y; bwQuat.z=-bwQuat.z; bwQuat.w=-bwQuat.w; }
+                        accRot[ji*4]  += bwQuat.x*wgt; accRot[ji*4+1] += bwQuat.y*wgt;
+                        accRot[ji*4+2] += bwQuat.z*wgt; accRot[ji*4+3] += bwQuat.w*wgt;
+                    }
                 }
             }
+        }
+        for(int ji = 0; ji < jointCount; ji++){
+            float w = chWeight[ji];
+            if(w > 1e-5f){
+                sPos[ji].set(accPos[ji*3]/w, accPos[ji*3+1]/w, accPos[ji*3+2]/w);
+                sScl[ji].set(accScl[ji*3]/w, accScl[ji*3+1]/w, accScl[ji*3+2]/w);
+                sRot[ji].set(accRot[ji*4], accRot[ji*4+1], accRot[ji*4+2], accRot[ji*4+3]).norm();
+            }
+            // joints no clip touches keep the rest pose set above
         }
         applyFootIK();
         for(int i = 0; i < jointCount; i++)

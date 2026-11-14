@@ -55,7 +55,7 @@ public final class MappedFile {
 
     /** read a slice [ofs, ofs+len) */
     public byte[] read(int ofs, int len){
-        if(ofs < 0 || len < 0 || ofs + len > size) throw new IndexOutOfBoundsException("read " + ofs + "+" + len + " of " + size);
+        if(ofs < 0 || len < 0 || (long)ofs + len > size) throw new IndexOutOfBoundsException("read " + ofs + "+" + len + " of " + size);
         if(buffer != null){
             byte[] out = new byte[len];
             buffer.position(ofs);
@@ -68,6 +68,7 @@ public final class MappedFile {
     }
 
     public int readIntLE(int ofs){
+        if(ofs < 0 || (long)ofs + 4 > size) throw new IndexOutOfBoundsException("readIntLE " + ofs + " of " + size);
         if(buffer != null){
             buffer.order(java.nio.ByteOrder.LITTLE_ENDIAN);
             buffer.position(ofs);

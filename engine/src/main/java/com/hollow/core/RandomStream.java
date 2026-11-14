@@ -20,6 +20,7 @@ public final class RandomStream {
 
     // ---------------- core PCG32 ----------------
     private int nextU32(){
+        draws++;
         long old = state;
         state = old * 6364136223846793005L + (streamId | 1L);
         int xorshifted = (int)(((old >>> 18) ^ old) >>> 27);

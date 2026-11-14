@@ -90,6 +90,7 @@ public final class Profiler {
         for(String key : order){
             Stat s = stats.get(key);
             if(s.calls > 0){
+                s.frames++;                                   // per-frame history (was frozen after first summary)
                 s.sumPerFrameNs += s.totalNs;
                 s.sumMaxPerFrameNs += s.maxNs;
                 s.sumCallsPerFrame += s.calls;
@@ -113,7 +114,7 @@ public final class Profiler {
         List<Stat> list = new ArrayList<>();
         for(String k : order){
             Stat s = stats.get(k);
-            if(s.frames == 0 && s.sumCallsPerFrame > 0){ s.frames = frameCount; }
+            if(s.frames == 0 && s.sumCallsPerFrame > 0){ s.frames = 1; }   // legacy zones from before per-frame counting
             list.add(s);
         }
         list.sort((a, b) -> Double.compare(b.sumPerFrameNs / Math.max(1, b.frames), a.sumPerFrameNs / Math.max(1, a.frames)));

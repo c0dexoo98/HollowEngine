@@ -27,12 +27,14 @@ public final class Pool<T> {
         T t = free.pollFirst();
         if(t == null){ t = factory.get(); created++; }
         else hits++;
+        if(t != null) leasedOut.add(t);                    // track for double-free detection
         inUse++;
         if(inUse > peakInUse) peakInUse = inUse;
         return t;
     }
     public void free(T t){
         if(t == null) return;
+        if(!leasedOut.remove(t)) return;                   // double free / never leased — ignore
         inUse = Math.max(0, inUse - 1);
         if(reset != null){ try { reset.accept(t); } catch(Exception e){ Log.w("Pool", "reset failed: " + e); } }
         if(free.size() < maxIdle) free.addFirst(t);
@@ -60,16 +62,27 @@ public final class Pool<T> {
         for(Pool<float[]> p : FLOAT_POOLS){ if(bucket <= bucketOf(p)){ float[] a = p.obtain(); return a; } }
         return new float[bucket];
     }
-    public static void freeFloats(float[] a){ if(a == null) return; int bucket = pow2(a.length); for(Pool<float[]> p : FLOAT_POOLS){ if(bucket == bucketOf(p)){ p.free(a); return; } } }
+    public static void freeFloats(float[] a){
+        if(a == null) return;
+        int bucket = pow2(a.length);
+        if(bucket != a.length) return;   // non-pow2 arrays never fit a bucket — dropping avoids short arrays
+        for(Pool<float[]> p : FLOAT_POOLS){ if(bucket == bucketOf(p)){ p.free(a); return; } }
+    }
     public static byte[] obtainBytes(int minCapacity){
         int bucket = pow2(minCapacity);
         for(Pool<byte[]> p : BYTE_POOLS){ if(bucket <= bucketOf(p)){ return p.obtain(); } }
         return new byte[bucket];
     }
-    public static void freeBytes(byte[] a){ if(a == null) return; int bucket = pow2(a.length); for(Pool<byte[]> p : BYTE_POOLS){ if(bucket == bucketOf(p)){ p.free(a); return; } } }
+    public static void freeBytes(byte[] a){
+        if(a == null) return;
+        int bucket = pow2(a.length);
+        if(bucket != a.length) return;   // non-pow2 arrays never fit a bucket
+        for(Pool<byte[]> p : BYTE_POOLS){ if(bucket == bucketOf(p)){ p.free(a); return; } }
+    }
 
     private static int bucketOf(Pool<?> p){ return (Integer)p.meta; }
     Object meta; // bucket size for static pools
+    private final java.util.Set<T> leasedOut = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
 
     static int pow2(int v){ int p = 16; while(p < v) p <<= 1; return p; }
     static { // standard buckets 16..65536

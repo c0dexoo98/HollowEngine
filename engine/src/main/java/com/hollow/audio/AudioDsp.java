@@ -67,9 +67,7 @@ public final class AudioDsp {
                     // forward FFT
                     java.util.Arrays.fill(inputBuf, blockSize, fftSize, 0f);
                     fft(inputBuf, false);
-                    // accumulate into fdQueue (circular)
-                    System.arraycopy(inputBuf, 0, fdQueue[0], 0, fftSize);
-                    // rotate queue: newest at index 0
+                    // rotate queue: newest at index 0 (reuse the evicted oldest slot)
                     float[] last = fdQueue[fdQueue.length - 1];
                     System.arraycopy(fdQueue, 0, fdQueue, 1, fdQueue.length - 1);
                     fdQueue[0] = last;

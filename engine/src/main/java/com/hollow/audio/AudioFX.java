@@ -90,8 +90,10 @@ public final class AudioFX {
 
         private float combProcess(float[] buf, int[] idx, float[] fil, float in, int cIdx){
             float output = buf[idx[cIdx]];
+            // freeverb comb: damp the stored output then feed it back scaled by roomSize —
+            // writing the damped input with no feedback killed the tail within one period
             fil[cIdx] = output * damp1 + in * (1f - damp1);
-            buf[idx[cIdx]] = fil[cIdx];
+            buf[idx[cIdx]] = in + fil[cIdx] * roomSize1;
             if(++idx[cIdx] >= buf.length) idx[cIdx] = 0;
             return output;
         }

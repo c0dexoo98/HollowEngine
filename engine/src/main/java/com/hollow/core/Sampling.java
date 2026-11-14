@@ -56,7 +56,8 @@ public final class Sampling {
     /** Poisson disk in an arbitrary rect with margin (world-space scatter) */
     public static List<P2> poissonDiskRect(float x0, float y0, float x1, float y1,
                                            float radius, RandomStream rng, int maxAttempts){
-        List<P2> unit = poissonDisk(radius / Math.max(1e-6f, Math.max(x1 - x0, y1 - y0)), rng, maxAttempts);
+        // normalize by the SHORT axis so world-space spacing >= radius on both axes
+        List<P2> unit = poissonDisk(radius / Math.max(1e-6f, Math.min(x1 - x0, y1 - y0)), rng, maxAttempts);
         List<P2> out = new ArrayList<>(unit.size());
         for(P2 p : unit) out.add(new P2(x0 + p.x * (x1 - x0), y0 + p.y * (y1 - y0)));
         return out;

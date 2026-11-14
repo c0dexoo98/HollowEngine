@@ -225,13 +225,19 @@ public final class AudioEngine {
             }
             float musicGain = ducker.update(voiceActive, sampleRate);
             for(int s = 0; s < needed; s++) fMix[s] += fWet[s];
-            delay.process(fMix, frames);                 // AUD-029 send bus
+            // AUD-029: delay is a SEND effect — process the per-voice send bus (fDelay),
+            // add its wet output to the mix; the master dry path stays untouched
+            delay.process(fDelay, frames);
+            for(int s = 0; s < needed; s++) fMix[s] += fDelay[s];
+            java.util.Arrays.fill(fDelay, 0, needed, 0f);
             eq.process(fMix, frames);
             compressor.process(fMix, frames, sampleRate);
             nextMusicGain = busVolume[BUS_MUSIC] * musicGain;
         } else {
             for(int s = 0; s < needed; s++) fMix[s] += fWet[s];
-            delay.process(fMix, frames);
+            delay.process(fDelay, frames);
+            for(int s = 0; s < needed; s++) fMix[s] += fDelay[s];
+            java.util.Arrays.fill(fDelay, 0, needed, 0f);
             nextMusicGain = busVolume[BUS_MUSIC];
         }
         for(int s = 0; s < needed; s++){
@@ -334,8 +340,10 @@ public final class AudioEngine {
             // AUD-028: crossfade the loop seam — blend the tail with the head
             if(v.p.loop && fadeFrames > 0 && v.cursor > totalFrames - fadeFrames){
                 float t = (float)((v.cursor - (totalFrames - fadeFrames)) / fadeFrames);
-                int j0 = i0 < fadeFrames ? i0 : i0 - fadeFrames;
+                // head sample aligned with the loop seam: c - (total - fade) maps cursor to [0, fade)
+                int j0 = (int)(v.cursor - (totalFrames - fadeFrames));
                 if(j0 < 0) j0 = 0;
+                if(j0 > totalFrames - 1) j0 = totalFrames - 1;
                 if(ch == 1){
                     l = lerpF(l, c.pcm[j0] * lgain, t);
                     r = lerpF(r, c.pcm[j0] * rgain, t);

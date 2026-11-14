@@ -27,6 +27,7 @@ import android.opengl.GLES30;
  *  Desktop/headless: no GL context — build() still runs so tests can validate scatter.
  */
 public final class FoliageSystem {
+    private static final float[] UP3 = { 0f, 1f, 0f };
     private static final int INST_FLOATS = 8;
 
     private static final class Batch {
@@ -134,9 +135,14 @@ public final class FoliageSystem {
         GLES30.glGenBuffers(1, vbo, 0);
         b.baseVBO = vbo[0];
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, b.baseVBO);
-        FloatBuffer vb = com.hollow.core.NioUtil.floatBuffer(b.mesh.positions.length + (b.mesh.normals != null ? b.mesh.normals.length : 0));
+        FloatBuffer vb = com.hollow.core.NioUtil.floatBuffer(b.mesh.positions.length * 2);
         vb.put(b.mesh.positions);
-        if(b.mesh.normals != null) vb.put(b.mesh.normals);
+        // pad normals with ups when absent (attrib 1 always reads a full normal block)
+        if(b.mesh.normals != null && b.mesh.normals.length == b.mesh.positions.length){
+            vb.put(b.mesh.normals);
+        } else {
+            for(int i = 0; i < b.mesh.positions.length; i += 3) vb.put(UP3);
+        }
         vb.position(0);
         GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, vb.capacity() * 4, vb, GLES30.GL_STATIC_DRAW);
         int[] ebo = new int[1];
@@ -194,13 +200,13 @@ public final class FoliageSystem {
             }
             b.instanceData.position(0);
             GLES30.glBindVertexArray(b.vao);
-            // attribute layout for base mesh: pos(0), normal(1) — interleaved upload above
+            // attribute layout for base mesh: pos(0), normal(1) — PLANAR upload (positions block, then normals block)
             GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, b.baseVBO);
-            int stride = 6 * 4;
             GLES30.glEnableVertexAttribArray(0);
-            GLES30.glVertexAttribPointer(0, 3, GLES30.GL_FLOAT, false, stride, 0);
+            GLES30.glVertexAttribPointer(0, 3, GLES30.GL_FLOAT, false, 12, 0);
             GLES30.glEnableVertexAttribArray(1);
-            GLES30.glVertexAttribPointer(1, 3, GLES30.GL_FLOAT, false, stride, 12);
+            int posFloats = b.mesh.positions.length;
+            GLES30.glVertexAttribPointer(1, 3, GLES30.GL_FLOAT, false, 12, posFloats * 4);
             // instance attribs: location 2 = iPosScale(4), location 3 = iRotPhase(4)
             GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, b.instanceVBO);
             GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, need * 4, b.instanceData, GLES30.GL_DYNAMIC_DRAW);

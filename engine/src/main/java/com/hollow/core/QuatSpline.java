@@ -18,6 +18,13 @@ public final class QuatSpline {
         this.times = times.clone();
         this.keys = new Quat[keys.length];
         for(int i=0;i<keys.length;i++) this.keys[i] = keys[i].cpy().norm();
+        // hemisphere alignment: consecutive keys must take the short arc
+        for(int i=1;i<this.keys.length;i++){
+            if(this.keys[i-1].dot(this.keys[i]) < 0f){
+                this.keys[i].x = -this.keys[i].x; this.keys[i].y = -this.keys[i].y;
+                this.keys[i].z = -this.keys[i].z; this.keys[i].w = -this.keys[i].w;
+            }
+        }
         this.innerA = new Quat[keys.length];
         this.innerB = new Quat[keys.length];
         computeInner();

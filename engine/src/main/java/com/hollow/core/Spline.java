@@ -96,6 +96,8 @@ public final class Spline {
     }
     private Vec3 sampleBezier(float t){
         // chain of segments, each 3 point-steps (P C C -> next P)
+        if((points.length - 1) % 3 != 0)
+            throw new IllegalStateException("bezier chain needs 3k+1 points, got " + points.length);
         int segs = (points.length - 1) / 3;
         if(segs < 1) return sampleLinear(t);
         float f = t * segs;

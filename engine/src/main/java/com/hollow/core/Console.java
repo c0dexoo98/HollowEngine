@@ -113,12 +113,17 @@ public final class Console {
         List<String> out = new ArrayList<>(8);
         StringBuilder cur = new StringBuilder();
         char quote = 0;
+        boolean hadQuote = false;
         for(int i=0;i<line.length();i++){
             char c = line.charAt(i);
             if(quote != 0){
-                if(c == quote){ quote = 0; continue; }
+                if(c == quote){
+                    quote = 0;
+                    if(cur.length() == 0 && hadQuote){ out.add(""); }   // explicit empty arg
+                    continue;
+                }
                 cur.append(c);
-            } else if(c == '"' || c == '\''){ quote = c; }
+            } else if(c == '"' || c == '\''){ quote = c; hadQuote = true; }
             else if(c == ' ' || c == '\t'){
                 if(cur.length() > 0){ out.add(cur.toString()); cur.setLength(0); }
             } else cur.append(c);

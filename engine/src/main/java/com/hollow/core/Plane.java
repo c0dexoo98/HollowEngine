@@ -12,7 +12,9 @@ public final class Plane {
 
     /** build from three points (counter-clockwise = normal up) */
     public static Plane fromPoints(Vec3 a, Vec3 b, Vec3 c){
-        Vec3 n = b.cpy().sub(a).cross(c.cpy().sub(a)).norm();
+        Vec3 n = b.cpy().sub(a).cross(c.cpy().sub(a));
+        if(n.len2() < 1e-12f) throw new IllegalArgumentException("Plane.fromPoints: collinear points");
+        n.norm();
         return new Plane(n.x, n.y, n.z, -n.dot(a));
     }
     /** normal + a point on the plane */

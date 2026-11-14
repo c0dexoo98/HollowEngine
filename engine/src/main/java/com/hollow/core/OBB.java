@@ -28,6 +28,9 @@ public final class OBB {
         b.halfExtents.set(ax.len() * 0.5f, ay.len() * 0.5f, az.len() * 0.5f);
         // extract rotation by normalizing axes
         Vec3 x = ax.norm(), y = ay.norm(), z = x.cpy().cross(y).norm();
+        // preserve source handedness: mirrored matrices must keep a flipped axis, not be re-right-handed
+        Vec3 srcZ = az.norm();
+        if(srcZ.dot(z) < 0f) z.scale(-1f);
         y.set(z.cpy().cross(x));
         b.rotation.set(fromAxes(x, y, z));
         return b;

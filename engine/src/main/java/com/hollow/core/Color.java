@@ -22,10 +22,11 @@ public final class Color {
         try {
             s = s.trim();
             if(s.startsWith("#")) s = s.substring(1);
+            if(s.length() != 6 && s.length() != 8) return def;   // #F00 etc. is not a supported format
             long v = Long.parseLong(s, 16);
             if(s.length()<=6) return new Color(((v>>16)&255)/255f, ((v>>8)&255)/255f, (v&255)/255f, 1f);
             return new Color(((v>>16)&255)/255f, ((v>>8)&255)/255f, (v&255)/255f, ((v>>24)&255)/255f);
         } catch(Exception e){ return def; }
     }
-    @Override public String toString(){ return "#"+Integer.toHexString(rgba8888()); }
+    @Override public String toString(){ return String.format("#%08x", rgba8888()); }
 }

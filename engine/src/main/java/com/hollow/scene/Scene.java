@@ -44,22 +44,21 @@ public final class Scene {
         if(ents == null) return w;
 
         Map<String, Entity> byName = new java.util.HashMap<>();
+        List<Entity> spawned = new java.util.ArrayList<>();
         for(Object o : ents){
             Map<String,Object> en = Json.obj(o);
             if(en == null) continue;
             Entity e = spawnFromJson(w, en);
-            if(e != null) byName.put(e.name, e);
+            if(e != null){ byName.put(e.name, e); spawned.add(e); }
         }
-        // second pass: parenting
-        int i = 0;
-        for(Object o : ents){
-            Map<String,Object> en = Json.obj(o);
-            if(en == null){ i++; continue; }
+        // second pass: parenting (parallel to spawned — null entries no longer shift indices)
+        for(int i = 0; i < spawned.size(); i++){
+            Map<String,Object> en = Json.obj(ents.get(i));
+            if(en == null) continue;
             String parent = Json.str(en.get("parent"), null);
             if(parent != null && byName.containsKey(parent)){
-                byName.get(parent).addChild(w.entities.get(i));
+                byName.get(parent).addChild(spawned.get(i));
             }
-            i++;
         }
         return w;
     }

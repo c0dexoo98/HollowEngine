@@ -60,7 +60,7 @@ public final class Ease {
     }
     /** ping-pong 0..1..0 over t */
     public static float pingPong(float t){
-        t = t % 2f;
+        t = Math.abs(t) % 2f;      // negative t mirrors instead of returning negatives
         return t < 1 ? t : 2 - t;
     }
 
