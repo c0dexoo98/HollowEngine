@@ -1601,12 +1601,104 @@ public final class Commands {
         failures += batch3Tests();
         // ================= v2.4 Batch 4-6 (WLD/AI/UI/NET/SAV/VFX/DBG) =================
         failures += batch4Tests();
+        // ================= v2.6.0 Batch 5 (NET-rollback + NAV-mesh) =================
+        failures += batch5Tests();
         System.out.println();
         if(failures > 0){
             System.out.println("RESULT: " + failures + " self test(s) FAILED");
             System.exit(1);
         }
         System.out.println("RESULT: all self tests passed");
+    }
+
+    /** v2.6.0 regression block: netcode rollback + navmesh */
+    static int batch5Tests(){
+        int failures = 0;
+        // --- InputBuffer redundancy wire round-trip ---
+        try {
+            com.hollow.net.InputBuffer ib = new com.hollow.net.InputBuffer();
+            ib.set(10, 0b1010L, 0.5f, -0.25f);
+            ib.set(11, 0b0110L, -1f, 1f);
+            com.hollow.net.InputBuffer dec = com.hollow.net.InputBuffer.decodeRedundant(ib.encodeRedundant(11));
+            if(dec.get(11) == null || dec.get(11).buttons != 0b0110L || Math.abs(dec.get(11).ax - (-1f)) > 1e-6f)
+                throw new AssertionError("wire roundtrip tick11=" + dec.get(11));
+            if(dec.get(10) == null || dec.get(10).buttons != 0b1010L)
+                throw new AssertionError("redundancy history lost");
+            pass("NET InputBuffer redundancy round-trip");
+        } catch(Throwable t){ fail("net-input", t); failures++; }
+        // --- two-peer rollback convergence under latency + 5% loss ---
+        try {
+            com.hollow.net.Transport.Relay relay = new com.hollow.net.Transport.Relay(100, 200);
+            relay.latencySec = 0.08f; relay.jitterSec = 0.02f; relay.lossRate = 0.05f;
+            final float[] xA = new float[2], xB = new float[2];
+            com.hollow.net.RollbackSim.Callbacks gA = new com.hollow.net.RollbackSim.Callbacks(){
+                public byte[] saveState(){ return new byte[]{ (byte)(xA[0]*10), (byte)(xA[1]*10) }; }
+                public void restoreState(byte[] s){ xA[0] = s[0]/10f; xA[1] = s[1]/10f; }
+                public void stepTick(int tick, java.util.Map<Integer, com.hollow.net.InputBuffer.Frame> in){
+                    for(int p = 0; p < 2; p++){
+                        com.hollow.net.InputBuffer.Frame f = in.get(p);
+                        xA[p] += (f != null ? f.ax : 0f) * 0.1f;
+                    }
+                }
+            };
+            com.hollow.net.RollbackSim.Callbacks gB = new com.hollow.net.RollbackSim.Callbacks(){
+                public byte[] saveState(){ return new byte[]{ (byte)(xB[0]*10), (byte)(xB[1]*10) }; }
+                public void restoreState(byte[] s){ xB[0] = s[0]/10f; xB[1] = s[1]/10f; }
+                public void stepTick(int tick, java.util.Map<Integer, com.hollow.net.InputBuffer.Frame> in){
+                    for(int p = 0; p < 2; p++){
+                        com.hollow.net.InputBuffer.Frame f = in.get(p);
+                        xB[p] += (f != null ? f.ax : 0f) * 0.1f;
+                    }
+                }
+            };
+            com.hollow.net.RollbackSim simA = new com.hollow.net.RollbackSim(relay, 100, gA);
+            com.hollow.net.RollbackSim simB = new com.hollow.net.RollbackSim(relay, 200, gB);
+            simA.addRemotePlayer(200); simB.addRemotePlayer(100);
+            for(int t = 0; t < 360; t++){
+                simA.setLocalInput(0L, (float)Math.sin(t * 0.05) * 0.8f, 0f, t);
+                simB.setLocalInput(0L, (float)Math.cos(t * 0.07) * 0.6f, 0f, t);
+                simA.pump(1f / 60f); simB.pump(1f / 60f);
+            }
+            float diff = Math.max(Math.abs(xA[0]-xB[0]), Math.abs(xA[1]-xB[1]));
+            if(diff > 1e-3f) throw new AssertionError("desync diff=" + diff);
+            if(simA.rollbacks == 0 && simB.rollbacks == 0) throw new AssertionError("no rollbacks exercised");
+            if(simA.stallFrames > 0 || simB.stallFrames > 0) throw new AssertionError("stall with live peer");
+            pass("NET rollback two-peer convergence (80ms+loss, no stall)");
+        } catch(Throwable t){ fail("net-rollback", t); failures++; }
+        // --- NavMesh bake + path around a wall through the gap ---
+        try {
+            // 64x64 cells @1.5 = 96m; wall at cols 6..7 with gap rows 9..10; pillar 13..14
+            final boolean[][] blocked = new boolean[64][64];
+            for(int z = 0; z < 64; z++){
+                boolean gap = (z >= 9 && z <= 10);
+                for(int x = 6; x <= 7; x++) blocked[z][x] = !gap;
+            }
+            for(int z = 13; z <= 14; z++) for(int x = 13; x <= 14; x++) blocked[z][x] = true;
+            com.hollow.nav.NavMesh mesh = new com.hollow.nav.NavMesh();
+            mesh.build((com.hollow.nav.NavMesh.WalkabilitySource) pos -> {
+                int cx = (int)(pos.x / 1.5f), cz = (int)(pos.z / 1.5f);
+                if(cx < 0 || cx >= 64 || cz < 0 || cz >= 64) return true;
+                return blocked[cz][cx];
+            }, new com.hollow.core.Vec3(0, 0, 0), 45f, 45f);
+            if(!mesh.built || mesh.polys.isEmpty()) throw new AssertionError("no polys baked");
+            java.util.List<com.hollow.core.Vec3> path = mesh.findPath(new com.hollow.core.Vec3(3,0,3), new com.hollow.core.Vec3(27,0,27));
+            if(path.isEmpty()) throw new AssertionError("no path");
+            boolean gapCrossed = false;
+            com.hollow.core.Vec3 prev = new com.hollow.core.Vec3(3,0,3);
+            for(com.hollow.core.Vec3 wp : path){
+                if(Math.max(prev.x, wp.x) >= 9f && Math.min(prev.x, wp.x) <= 10.5f){
+                    float s = (9.75f - prev.x) / Math.max(1e-5f, wp.x - prev.x);
+                    if(s >= 0 && s <= 1){
+                        float zAt = prev.z + (wp.z - prev.z) * s;
+                        if(zAt > 13.2f && zAt < 16.8f) gapCrossed = true;
+                    }
+                }
+                prev = wp;
+            }
+            if(!gapCrossed) throw new AssertionError("path avoids gap: " + path);
+            pass("NAV navmesh path through wall gap");
+        } catch(Throwable t){ fail("nav-mesh", t); failures++; }
+        return failures;
     }
 
     /** v2.4 regression block (WLD/AI/UI/INP/NET/SAV/LOC/VFX/ENV/DBG/SCR/RND/MAT/SEQ/AST) */
