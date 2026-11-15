@@ -4123,6 +4123,78 @@ public final class Commands {
             pass("v6 ecosystem + building");
         } catch(Throwable t){ fail("v6-eco-build", t); failures++; }
 
+        // --- v7.0.0 systems: settlement / caravan / skill tree / diplomacy / territory / bounty / schedule / cooking ---
+        try {
+            com.hollow.world.SettlementSystem st2 = new com.hollow.world.SettlementSystem();
+            com.hollow.world.SettlementSystem.Settlement v = st2.found("oak", "Oakstead");
+            v.wood = 15f;
+            if(!st2.queueBuilding("oak", "house1", 10, 0)) throw new AssertionError("settle queue");
+            st2.tickDay(); st2.tickDay(); st2.tickDay();
+            if(!v.buildings.contains("house1") || v.houses != 2) throw new AssertionError("settle build");
+            v.farmers = 0; v.food = 0f;
+            st2.tickDay();
+            if(v.pop >= 6) throw new AssertionError("settle famine");
+            pass("v7 settlement");
+        } catch(Throwable t){ fail("v7-settlement", t); failures++; }
+
+        try {
+            com.hollow.world.CaravanSystem cs3 = new com.hollow.world.CaravanSystem();
+            cs3.define(new com.hollow.world.CaravanSystem.Route("r1", "a", "b").travelDays(1f));
+            java.util.Map<String, Integer> cargo2 = new java.util.LinkedHashMap<>();
+            cargo2.put("wheat", 10);
+            com.hollow.world.CaravanSystem.Caravan c3 = cs3.send("r1", cargo2, 10);
+            if(c3 == null || cs3.gold != 90) throw new AssertionError("caravan send");
+            cs3.tickDay();
+            if(c3.state != com.hollow.world.CaravanSystem.State.ARRIVED || cs3.gold <= 90)
+                throw new AssertionError("caravan arrive " + c3.state + "/" + cs3.gold);
+
+            com.hollow.gameplay.SkillTreeSystem sk = new com.hollow.gameplay.SkillTreeSystem();
+            sk.define(new com.hollow.gameplay.SkillTreeSystem.Node("root", "R").costs(1).effect("dmg", 0.1f));
+            sk.grant(1);
+            if(!sk.unlock("root") || Math.abs(sk.bonus("dmg") - 0.1f) > 0.001f) throw new AssertionError("skill");
+            if(sk.respec() != 1 || sk.unlockedCount() != 0) throw new AssertionError("respec");
+            pass("v7 caravan + skill tree");
+        } catch(Throwable t){ fail("v7-caravan-skill", t); failures++; }
+
+        try {
+            com.hollow.game.DiplomacySystem dp2 = new com.hollow.game.DiplomacySystem();
+            dp2.shift("rome", "gaul", 20);
+            if(!dp2.propose("rome", "gaul", com.hollow.game.DiplomacySystem.Treaty.TRADE))
+                throw new AssertionError("diplo trade");
+            dp2.declareWar("rome", "gaul");
+            if(!dp2.atWar("rome", "gaul") || dp2.hasTreaty("rome", "gaul", com.hollow.game.DiplomacySystem.Treaty.TRADE))
+                throw new AssertionError("diplo war");
+
+            com.hollow.world.TerritorySystem te = new com.hollow.world.TerritorySystem();
+            te.define(new com.hollow.world.TerritorySystem.Region("valley", "V"));
+            while(te.controlOf("valley", "red") < 70f) te.pushPresence("valley", "red", 2f);
+            te.tickDay();
+            if(!"red".equals(te.ownerOf("valley"))) throw new AssertionError("territory " + te.ownerOf("valley"));
+            pass("v7 diplomacy + territory");
+        } catch(Throwable t){ fail("v7-diplo-terr", t); failures++; }
+
+        try {
+            com.hollow.game.BountySystem bo = new com.hollow.game.BountySystem();
+            com.hollow.game.BountySystem.Bounty b3 = bo.post("Thief", 100, 2, 3);
+            if(!bo.claim(b3.id, "hana") || !bo.complete(b3.id, true)) throw new AssertionError("bounty");
+            if(bo.earned("hana") != 100) throw new AssertionError("bounty pay");
+
+            com.hollow.world.NpcScheduler ns2 = new com.hollow.world.NpcScheduler();
+            com.hollow.world.NpcScheduler.Profile p3 = ns2.register(new com.hollow.world.NpcScheduler.Profile("smith")
+                .homeAt(10, 0, 10).workAt(0, 0, 0).shift(8, 17));
+            if(ns2.activityAt(p3, 12) != com.hollow.world.NpcScheduler.Activity.WORK
+               || ns2.activityAt(p3, 23) != com.hollow.world.NpcScheduler.Activity.SLEEP)
+                throw new AssertionError("schedule");
+
+            com.hollow.gameplay.CookingSystem cook = new com.hollow.gameplay.CookingSystem();
+            cook.define(new com.hollow.gameplay.CookingSystem.Recipe("stew", "Stew").needs("meat", 1).feeds(30f, 0f, 0f));
+            cook.learn("stew");
+            com.hollow.gameplay.SurvivalSystem sv2 = new com.hollow.gameplay.SurvivalSystem();
+            com.hollow.gameplay.CookingSystem.Dish dish = cook.cook("stew", 1f, 1f);
+            if(dish == null || !cook.serve(dish, sv2) || sv2.hunger <= 40f) throw new AssertionError("cooking");
+            pass("v7 bounty + schedule + cooking");
+        } catch(Throwable t){ fail("v7-bounty-sched-cook", t); failures++; }
+
         return failures;
     }
 

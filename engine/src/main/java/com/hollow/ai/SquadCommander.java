@@ -149,14 +149,16 @@ public final class SquadCommander {
         }
     }
 
-    /** share of members snapped within 0.5 m of their slot */
+    /** share of non-dismissed members snapped within 0.5 m of their slot */
     public float formationQuality(String squadId){
         Squad s = squads.get(squadId);
-        if(s == null || s.members.isEmpty()) return 1f;
-        int snapped = 0;
-        for(Member m : s.members)
+        int counted = 0, snapped = 0;
+        if(s != null) for(Member m : s.members){
+            if(m.order == Order.DISMISS) continue;      // dismissed members are not in formation
+            counted++;
             if(m.pos.dist(slot(s, m, m.slotIndex)) < 0.5f) snapped++;
-        return snapped / (float)s.members.size();
+        }
+        return counted == 0 ? 1f : snapped / (float)counted;
     }
 
     // ---------------- persistence (orders + slots, not positions) ----------------

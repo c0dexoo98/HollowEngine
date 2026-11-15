@@ -107,9 +107,11 @@ public final class FarmingSystem {
 
             float gain = p.watered ? 1f : 0.4f;
             if(c.preferred == season) gain *= 1.5f;                 // in-season growth bonus
+            float before = p.growth;
             p.growth += gain;
             p.watered = false;                                      // must water again next day
-            if(p.growth >= c.growthDays && listener != null)
+            // fire "ripe" only on the day the crop crosses full growth — never spam
+            if(before < c.growthDays && p.growth >= c.growthDays && listener != null)
                 listener.onFarmEvent("ripe", p.index, c.id, 0);
         }
     }

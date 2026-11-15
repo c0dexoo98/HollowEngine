@@ -105,8 +105,15 @@ public class VerifyV6 {
         check("farming: harvest unripe refused", f.harvest(0) == -1, "");
 
         // watered in-season plot ripens in 3 days (4 / 1.5)
+        final List<String> farmEvents = new ArrayList<>();
+        f.listener = (type, plot, crop, qty2) -> farmEvents.add(type);
         for(int i = 0; i < 3; i++){ f.water(0); f.tickDay(); }
         check("farming: watered+in-season ripens fast", f.ripeCount() == 1, "day=" + f.day);
+        // regression: staying ripe must not re-fire the "ripe" event every day
+        for(int i = 0; i < 3; i++) f.tickDay();
+        long ripeEvents = farmEvents.stream().filter(e -> e.equals("ripe")).count();
+        check("farming: no ripe-event spam", ripeEvents == 1, "" + ripeEvents);
+        f.listener = null;
         int qty = f.harvest(0);
         check("farming: harvest yield in range", qty >= 1 && qty <= 4, "" + qty);
         check("farming: plot cleared after harvest", f.plot(0).stage("", 0) == FarmingSystem.Stage.EMPTY, "");
@@ -191,13 +198,22 @@ public class VerifyV6 {
         check("build: demolish works", b.demolish(3), "");
         check("build: demolish refunds half", wallet.get("wood") == 11, "" + wallet);
 
+        // regression: negative rotation normalizes (-90 → 270, footprint swapped)
+        b.define(new BaseBuildingSystem.Blueprint("beam", "Long Beam").size(1, 3).needs("wood", 1));
+        int beamId = b.place("beam", 30, 30, -90);          // 3 wide × 1 deep after rotation
+        check("build: negative rotation accepted", beamId > 0, "" + beamId);
+        check("build: rotation normalized to 270", b.structure(beamId) != null && b.structure(beamId).rotation == 270,
+              "" + (b.structure(beamId) == null ? -1 : b.structure(beamId).rotation));
+
         String json = b.save();
         BaseBuildingSystem b2 = new BaseBuildingSystem();
         b2.define(new BaseBuildingSystem.Blueprint("wall", "Wood Wall").size(1, 1).needs("wood", 2).dura(100f));
         b2.define(new BaseBuildingSystem.Blueprint("floor2x2", "Platform").size(2, 2).needs("wood", 6));
+        b2.define(new BaseBuildingSystem.Blueprint("beam", "Long Beam").size(1, 3).needs("wood", 1));
         b2.load(json);
         check("build: save/load", b2.count() == b.count() && b2.structure(2) != null
-              && b2.structure(2).blueprintId.equals("floor2x2"),
+              && b2.structure(2).blueprintId.equals("floor2x2") && b2.structure(beamId) != null
+              && b2.structure(beamId).rotation == 270,
               "" + b2.count());
     }
 
@@ -240,6 +256,9 @@ public class VerifyV6 {
         sc.order("alpha", SquadCommander.Order.ATTACK, new com.hollow.core.Vec3(80, 0, 20));
         for(int i = 0; i < 10; i++) sc.update(1f);
         check("squad: member override honored", sq.member("rex").pos.dist(rexBefore) < 0.01f, "");
+        // regression: a dismissed member far away must not drag formationQuality down
+        float qual = sc.formationQuality("alpha");
+        check("squad: dismiss excluded from quality", qual == 1f, "" + qual);
         check("squad: attackers moved", sq.member("max").pos.dist(new com.hollow.core.Vec3(80, 0, 20)) < 20f,
               "" + sq.member("max").pos);
 

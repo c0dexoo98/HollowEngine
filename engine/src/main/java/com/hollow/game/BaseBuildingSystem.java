@@ -102,6 +102,7 @@ public final class BaseBuildingSystem {
         Blueprint b = blueprints.get(blueprintId);
         if(b == null) return -1;
         if(rotation % 90 != 0) return -1;
+        rotation = ((rotation % 360) + 360) % 360;   // normalize -90 → 270, 450 → 90, ...
         if(!inBounds(b, gx, gz, rotation) || overlaps(b, gx, gz, rotation, -1)){
             if(listener != null) listener.onBuildEvent("rejected", -1, blueprintId);
             return -1;

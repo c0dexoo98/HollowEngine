@@ -39,5 +39,8 @@ public final class JsonW {
 
     public JsonW valueRaw(String raw){ comma(); b.append(raw); needComma=true; return this; }
 
+    /** quoted string value for arrays */
+    public JsonW val(String v){ comma(); Json.valRaw(v, b); needComma=true; return this; }
+
     @Override public String toString(){ return b.toString(); }
 }
