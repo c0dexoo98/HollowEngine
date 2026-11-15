@@ -94,6 +94,12 @@ public final class BountySystem {
     public int completions(String hunter){ return hunterCompletions.getOrDefault(hunter, 0); }
     public int earned(String hunter){ return hunterEarnings.getOrDefault(hunter, 0); }
 
+    /** saved id if present; otherwise allocate from nextId (never inflates on load) */
+    private int nextIdFor(Object raw){
+        int saved = (int)Json.num(raw, 0);
+        return saved > 0 ? saved : nextId++;
+    }
+
     // ---------------- persistence ----------------
     public String save(){
         JsonW w = new JsonW();
@@ -123,7 +129,7 @@ public final class BountySystem {
             if(bs != null) for(Object o : bs){
                 Map<String,Object> m = Json.obj(o);
                 if(m == null) continue;
-                Bounty b = new Bounty((int)Json.num(m.get("id"), nextId++), Json.str(m.get("target"), "?"),
+                Bounty b = new Bounty(nextIdFor(m.get("id")), Json.str(m.get("target"), "?"),
                     (int)Json.num(m.get("reward"), 1), (int)Json.num(m.get("tier"), 1),
                     (int)Json.num(m.get("posted"), day), (int)Json.num(m.get("expires"), day + 1));
                 try { b.state = State.valueOf(Json.str(m.get("state"), "OPEN")); } catch(Exception ignored){ }

@@ -96,6 +96,12 @@ public final class ChronicleSystem {
 
     public int size(){ return entries.size(); }
 
+    /** saved id if present; otherwise allocate from nextId (never inflates on load) */
+    private int nextIdFor(Object raw){
+        int saved = (int)Json.num(raw, 0);
+        return saved > 0 ? saved : nextId++;
+    }
+
     // ---------------- persistence ----------------
     public String save(){
         JsonW w = new JsonW();
@@ -119,7 +125,7 @@ public final class ChronicleSystem {
             for(Object o : es){
                 java.util.Map<String,Object> m = Json.obj(o);
                 if(m == null) continue;
-                entries.add(new Entry((int)Json.num(m.get("id"), nextId++), (int)Json.num(m.get("d"), 0),
+                entries.add(new Entry(nextIdFor(m.get("id")), (int)Json.num(m.get("d"), 0),
                     Json.str(m.get("t"), "?"), Json.str(m.get("x"), ""),
                     (int)Json.num(m.get("f"), 0)));
             }

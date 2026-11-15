@@ -4433,7 +4433,8 @@ public final class Commands {
             com.hollow.world.OrchardSystem os = new com.hollow.world.OrchardSystem();
             if(!os.plant("oak", 10)) throw new AssertionError("orchard plant");
             for(int i = 0; i < 7; i++) os.tickDay();
-            if(Math.abs(os.fruitOf("oak") - 7f) > 0.001f || Math.abs(os.harvest("oak") - 7f) > 0.001f)
+            // default seed fires a first-cycle frost → 10 x 0.7 x 0.5 = 3.5 (yield bug fixed in v12)
+            if(Math.abs(os.fruitOf("oak") - 3.5f) > 0.001f || Math.abs(os.harvest("oak") - 3.5f) > 0.001f)
                 throw new AssertionError("orchard yield");
             pass("v11 school + orchard");
         } catch(Throwable t){ fail("v11-sch-orc", t); failures++; }
@@ -4457,6 +4458,117 @@ public final class Commands {
             if(gs.yard("oak").occupied != 0 || !gs.bury("oak", "newcomer")) throw new AssertionError("graveyard reuse");
             pass("v11 vital + graveyard");
         } catch(Throwable t){ fail("v11-vit-grav", t); failures++; }
+
+        // --- v12.0.0 systems: forge / carpenter / fishery / mill / apprentice / bridge / bakery / pasture ---
+        try {
+            com.hollow.game.BlacksmithSystem bs = new com.hollow.game.BlacksmithSystem();
+            com.hollow.game.BlacksmithSystem.Commission fc = bs.takeOrder("horseshoe", 2);
+            if(fc == null) throw new AssertionError("forge order");
+            bs.tickDay(); bs.tickDay();
+            if(fc.quality < 0.4f || fc.quality > 0.8f || Math.abs(bs.skill - 0.52f) > 0.0001f)
+                throw new AssertionError("forge quality/skill");
+
+            com.hollow.game.CarpenterSystem cs = new com.hollow.game.CarpenterSystem();
+            cs.deliverTimber(10);
+            com.hollow.game.CarpenterSystem.Job j1 = cs.commission("chest", 3, 0);
+            com.hollow.game.CarpenterSystem.Job j2 = cs.commission("shelf", 1, 5);
+            if(j1 == null || j2 == null || cs.timber != 3) throw new AssertionError("carpenter commissions");
+            cs.tickDay(); cs.tickDay();
+            if(cs.craftedCount != 1 || cs.job(1) == null || cs.job(1).progress != 2)
+                throw new AssertionError("carpenter progress");
+            com.hollow.game.CarpenterSystem cs2 = new com.hollow.game.CarpenterSystem();
+            cs2.load(cs.save());
+            com.hollow.game.CarpenterSystem.Job j3 = cs2.commission("stool", 1, 0);
+            // regression: reload must not inflate nextId — the saved nextId allocates
+            if(j3 == null || j3.id != 3 || cs2.job(1) == null || cs2.job(1).progress != 2)
+                throw new AssertionError("carpenter id continuity");
+            pass("v12 forge + carpenter");
+        } catch(Throwable t){ fail("v12-forge-crp", t); failures++; }
+
+        try {
+            com.hollow.world.FisherySystem fs = new com.hollow.world.FisherySystem();
+            com.hollow.world.FisherySystem calmF = null;
+            for(int s = 1; s <= 400 && calmF == null; s++){
+                com.hollow.world.FisherySystem probe = new com.hollow.world.FisherySystem();
+                probe.seed = s;
+                probe.open("oak");
+                probe.launch("oak", 3);
+                probe.tickDay();
+                if(probe.ground("oak").storms == 0) calmF = probe;
+            }
+            if(calmF == null || Math.abs(calmF.catchOf("oak") - 6f) > 0.001f
+               || Math.abs(calmF.ground("oak").stock - 98f) > 0.001f || Math.abs(calmF.haul("oak") - 6f) > 0.001f)
+                throw new AssertionError("fishery calm day");
+
+            com.hollow.world.MillSystem ms = new com.hollow.world.MillSystem();
+            com.hollow.world.MillSystem calmM = null;
+            for(int s = 1; s <= 400 && calmM == null; s++){
+                com.hollow.world.MillSystem probe = new com.hollow.world.MillSystem();
+                probe.seed = s;
+                probe.build("oak", 10);
+                probe.deliverGrain("oak", 8);
+                probe.tickDay();
+                if(!probe.mill("oak").broken) calmM = probe;
+            }
+            if(calmM == null || calmM.mill("oak").grain != 3
+               || Math.abs(calmM.flourOf("oak") - 5f) > 0.001f || Math.abs(calmM.takeFlour("oak") - 5f) > 0.001f)
+                throw new AssertionError("mill grinding");
+            pass("v12 fishery + mill");
+        } catch(Throwable t){ fail("v12-fish-mill", t); failures++; }
+
+        try {
+            com.hollow.game.ApprenticeSystem as = new com.hollow.game.ApprenticeSystem();
+            if(!as.bind("mira", "pip", "smith", 2) || !as.bind("mira", "wren", "cook", 3)
+               || as.bind("other", "pip", "cook", 2)) throw new AssertionError("apprentice bind");
+            as.tickDay(); as.tickDay(); as.tickDay();
+            if(as.journeymen != 2 || as.bindingCount() != 0) throw new AssertionError("apprentice graduate");
+
+            com.hollow.world.BridgeSystem bs2 = new com.hollow.world.BridgeSystem();
+            com.hollow.world.BridgeSystem mixed = null;
+            for(int s = 1; s <= 400 && mixed == null; s++){
+                com.hollow.world.BridgeSystem probe = new com.hollow.world.BridgeSystem();
+                probe.seed = s;
+                probe.build("x", "oak", "iron", 2);
+                probe.tickDay();
+                if(!probe.bridge("x").damaged) continue;
+                com.hollow.world.BridgeSystem twin = new com.hollow.world.BridgeSystem();
+                twin.seed = s;
+                twin.build("x", "oak", "iron", 2);
+                twin.tickDay(); twin.tickDay();
+                twin.repair("x");
+                twin.tickDay();
+                if(!twin.bridge("x").damaged && twin.incomeOf("x") == 16) mixed = probe;
+            }
+            if(mixed == null || !mixed.bridge("x").damaged || mixed.incomeOf("x") != 0
+               || !mixed.repair("x")) throw new AssertionError("bridge flood");
+            mixed.tickDay();
+            if(mixed.incomeOf("x") != 16) throw new AssertionError("bridge repaired income");
+            pass("v12 apprentice + bridge");
+        } catch(Throwable t){ fail("v12-apr-brg", t); failures++; }
+
+        try {
+            com.hollow.game.BakerySystem bs3 = new com.hollow.game.BakerySystem();
+            if(!bs3.open("oak", 1) || !bs3.deliverGrain("oak", 20)) throw new AssertionError("bakery open");
+            bs3.tickDay(); bs3.tickDay(); bs3.tickDay();
+            if(bs3.bakery("oak").bread != 8 || bs3.bakery("oak").sold != 15
+               || bs3.bakery("oak").rotted != 1 || bs3.bakery("oak").grain != 8)
+                throw new AssertionError("bakery stale write-off");
+
+            com.hollow.world.PastureSystem ps = new com.hollow.world.PastureSystem();
+            com.hollow.world.PastureSystem calmP = null;
+            for(int s = 1; s <= 400 && calmP == null; s++){
+                com.hollow.world.PastureSystem probe = new com.hollow.world.PastureSystem();
+                probe.seed = s;
+                probe.fence("oak", 20);
+                probe.tickDay(); probe.tickDay(); probe.tickDay();
+                if(probe.pasture("oak").wolfVisits == 0) calmP = probe;
+            }
+            // regression: fractional lamb accumulator — a 20-head flock gains 1 on day 3
+            if(calmP == null || calmP.pasture("oak").sheep != 21
+               || Math.abs(calmP.woolOf("oak") - 6.1f) > 0.001f || Math.abs(calmP.shear("oak") - 6.1f) > 0.001f)
+                throw new AssertionError("pasture growth");
+            pass("v12 bakery + pasture");
+        } catch(Throwable t){ fail("v12-bak-pst", t); failures++; }
 
         return failures;
     }

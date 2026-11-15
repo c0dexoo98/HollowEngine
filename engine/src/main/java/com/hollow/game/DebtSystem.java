@@ -93,6 +93,12 @@ public final class DebtSystem {
         return n;
     }
 
+    /** saved id if present; otherwise allocate from nextId (never inflates on load) */
+    private int nextIdFor(Object raw){
+        int saved = (int)Json.num(raw, 0);
+        return saved > 0 ? saved : nextId++;
+    }
+
     // ---------------- persistence ----------------
     public String save(){
         JsonW w = new JsonW();
@@ -117,7 +123,7 @@ public final class DebtSystem {
             for(Object o : ls){
                 Map<String,Object> m = Json.obj(o);
                 if(m == null) continue;
-                Loan l = new Loan((int)Json.num(m.get("id"), nextId++), Json.str(m.get("who"), "?"),
+                Loan l = new Loan(nextIdFor(m.get("id")), Json.str(m.get("who"), "?"),
                     (int)Json.num(m.get("p"), 0), (int)Json.num(m.get("i"), 0),
                     (int)Json.num(m.get("t0"), 0),
                     Math.max(1, (int)Json.num(m.get("due"), 1) - (int)Json.num(m.get("t0"), 0)));

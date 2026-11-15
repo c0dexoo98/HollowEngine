@@ -126,6 +126,12 @@ public final class CaravanSystem {
         return n;
     }
 
+    /** saved id if present; otherwise allocate from nextId (never inflates on load) */
+    private int nextIdFor(Object raw){
+        int saved = (int)Json.num(raw, 0);
+        return saved > 0 ? saved : nextId++;
+    }
+
     // ---------------- persistence ----------------
     public String save(){
         JsonW w = new JsonW();
@@ -162,7 +168,7 @@ public final class CaravanSystem {
                     Map<String,Object> im = Json.obj(io);
                     if(im != null) cargo.put(Json.str(im.get("item"), ""), (int)Json.num(im.get("qty"), 0));
                 }
-                Caravan c = new Caravan((int)Json.num(m.get("id"), nextId++), Json.str(m.get("route"), ""),
+                Caravan c = new Caravan(nextIdFor(m.get("id")), Json.str(m.get("route"), ""),
                     cargo, (int)Json.num(m.get("cost"), 0));
                 c.progress = (float)Json.num(m.get("prog"), 0f);
                 try { c.state = State.valueOf(Json.str(m.get("state"), "TRAVELING")); } catch(Exception ignored){ }

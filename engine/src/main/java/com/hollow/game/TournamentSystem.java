@@ -96,6 +96,12 @@ public final class TournamentSystem {
 
     public int titlesOf(String knight){ return titles.getOrDefault(knight, 0); }
 
+    /** saved id if present; otherwise allocate from nextId (never inflates on load) */
+    private int nextIdFor(Object raw){
+        int saved = (int)Json.num(raw, 0);
+        return saved > 0 ? saved : nextId++;
+    }
+
     // ---------------- persistence ----------------
     public String save(){
         JsonW w = new JsonW();
@@ -136,7 +142,7 @@ public final class TournamentSystem {
             if(ts != null) for(Object o : ts){
                 Map<String,Object> m = Json.obj(o);
                 if(m == null) continue;
-                Tournament t = new Tournament((int)Json.num(m.get("id"), nextId++), Json.str(m.get("name"), "?"),
+                Tournament t = new Tournament(nextIdFor(m.get("id")), Json.str(m.get("name"), "?"),
                     (int)Json.num(m.get("prize"), 0), (int)Json.num(m.get("fame"), 0));
                 t.champion = Json.str(m.get("champ"), "");
                 t.done = Json.bool(m.get("done"), false);

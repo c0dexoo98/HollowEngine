@@ -214,14 +214,50 @@ public class VerifyV11 {
         check("orc: blossom or frost fired", events.contains("blossom") || events.contains("frost"),
               events.toString());
         for(int i = 3; i < 7; i++) os.tickDay();        // age 7 → ripe
-        check("orc: young orchard partial yield", Math.abs(os.fruitOf("oak") - 7f) < 0.001f,
-              "" + os.fruitOf("oak"));                    // 10 trees x min(1, 7/10)
-        check("orc: harvest takes fruit", Math.abs(os.harvest("oak") - 7f) < 0.001f
+        // 10 trees x 0.7 maturity x 0.5 — the default seed fires a first-cycle frost
+        // (masked for v11.0 by the flavor-only frost bug itself)
+        check("orc: young orchard partial yield", Math.abs(os.fruitOf("oak") - 3.5f) < 0.001f,
+              "" + os.fruitOf("oak"));
+        check("orc: harvest takes fruit", Math.abs(os.harvest("oak") - 3.5f) < 0.001f
               && Math.abs(os.fruitOf("oak")) < 0.001f && os.orchard("oak").harvests == 1, "");
 
         for(int i = 7; i < 15; i++) os.tickDay();        // age 15 → second ripe day, maturity capped
         check("orc: mature orchard full yield", Math.abs(os.harvest("oak") - 10f) < 0.001f,
               "" + os.fruitOf("oak"));
+
+        // regression: a blossom-day frost halves the ripe-day yield (old: frost was flavor-only)
+        OrchardSystem frosted = null;
+        for(int s2 = 1; s2 <= 400 && frosted == null; s2++){
+            OrchardSystem probe = new OrchardSystem();
+            probe.seed = s2;
+            probe.plant("oak", 10);
+            probe.tickDay(); probe.tickDay(); probe.tickDay();
+            if(probe.orchard("oak").frosts > 0) frosted = probe;
+        }
+        if(frosted != null){
+            for(int i = 3; i < 7; i++) frosted.tickDay();
+            check("orc: frost halves the yield", Math.abs(frosted.fruitOf("oak") - 3.5f) < 0.001f,
+                  "" + frosted.fruitOf("oak"));     // 10 trees x 0.7 maturity x 0.5 spoil
+        } else {
+            check("orc: frost halves the yield", false, "no frost seed found in 400");
+        }
+
+        // control: a frost-free first cycle pays the full young yield (10 trees x 0.7)
+        OrchardSystem cleanS = null;
+        for(int s2 = 1; s2 <= 400 && cleanS == null; s2++){
+            OrchardSystem probe = new OrchardSystem();
+            probe.seed = s2;
+            probe.plant("oak", 10);
+            probe.tickDay(); probe.tickDay(); probe.tickDay();
+            if(probe.orchard("oak").frosts == 0) cleanS = probe;
+        }
+        if(cleanS != null){
+            for(int i = 3; i < 7; i++) cleanS.tickDay();
+            check("orc: clean cycle full young yield", Math.abs(cleanS.fruitOf("oak") - 7f) < 0.001f,
+                  "" + cleanS.fruitOf("oak"));
+        } else {
+            check("orc: clean cycle full young yield", false, "no clean seed found in 400");
+        }
 
         String json = os.save();
         OrchardSystem os2 = new OrchardSystem();

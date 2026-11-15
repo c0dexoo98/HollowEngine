@@ -120,6 +120,12 @@ public final class ExpeditionSystem {
         return n;
     }
 
+    /** saved id if present; otherwise allocate from nextId (never inflates on load) */
+    private int nextIdFor(Object raw){
+        int saved = (int)Json.num(raw, 0);
+        return saved > 0 ? saved : nextId++;
+    }
+
     // ---------------- persistence ----------------
     public String save(){
         JsonW w = new JsonW();
@@ -161,7 +167,7 @@ public final class ExpeditionSystem {
             if(es != null) for(Object o : es){
                 Map<String,Object> m = Json.obj(o);
                 if(m == null) continue;
-                Expedition e = new Expedition((int)Json.num(m.get("id"), nextId++), Json.str(m.get("ruin"), "?"),
+                Expedition e = new Expedition(nextIdFor(m.get("id")), Json.str(m.get("ruin"), "?"),
                     Json.str(m.get("leader"), "?"), (int)Json.num(m.get("crew"), 0), (int)Json.num(m.get("prov"), 0));
                 e.progress = (float)Json.num(m.get("prog"), 0f);
                 e.resolved = Json.bool(m.get("res"), false);

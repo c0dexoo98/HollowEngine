@@ -87,6 +87,12 @@ public final class CourierSystem {
         return n;
     }
 
+    /** saved id if present; otherwise allocate from nextId (never inflates on load) */
+    private int nextIdFor(Object raw){
+        int saved = (int)Json.num(raw, 0);
+        return saved > 0 ? saved : nextId++;
+    }
+
     // ---------------- persistence ----------------
     public String save(){
         JsonW w = new JsonW();
@@ -111,7 +117,7 @@ public final class CourierSystem {
             for(Object o : ls){
                 Map<String,Object> m = Json.obj(o);
                 if(m == null) continue;
-                Letter l = new Letter((int)Json.num(m.get("id"), nextId++), Json.str(m.get("f"), "?"),
+                Letter l = new Letter(nextIdFor(m.get("id")), Json.str(m.get("f"), "?"),
                     Json.str(m.get("t"), "?"), Json.str(m.get("b"), ""), (int)Json.num(m.get("td"), 1),
                     (int)Json.num(m.get("sd"), 0));
                 l.lost = Json.bool(m.get("lost"), false);

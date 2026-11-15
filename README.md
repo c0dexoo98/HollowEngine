@@ -186,6 +186,19 @@
 > می‌ماند (حالت LOST جدید)، منحنی کمیابی بازار بی‌اثر بود و پاداش «starved 1.6×» هیچ‌وقت پرداخت نمی‌شد، و خواستگاری با نام خالی
 > پذیرفته می‌شد (۴ فیکس موتوری؛ دفترچهٔ کاروان: VerifyV7 با ۵ رگرسیون به ۸۶ چک رسید).
 > تست کل: `hollow selftest` — **۲۲۱ تست** + ۱۶ سوئیت regression — **ALL GREEN**.
+>
+> **v12.0** (`trades & crafts`) — ۸ سیستم صنعتگر و تجارت: **BlacksmithSystem** (آهنگری با سفارش یکی‌یکی، skill در هر سفارش
+> +۰.۰۲ و roll کیفیت قطعی)، **FisherySystem** (آبگاه با صید متناسب موجودی، بازتولید روزانه، طوفانِ لنگر)،
+> **ApprenticeSystem** (شاگرد‌مُردگی با آموزش روزانه، journeyman و quit)، **MillSystem** (آسیاب گندم→آرد با نرخ ثابت،
+> خرابی مکانیسم و تعمیر)، **BridgeSystem** (پل عوارضی با تردد بر پایه condition، سیل تا تعمیر، رد جفت‌تکراری)،
+> **BakerySystem** (نانوایی با تقاضای ثابت و نوشتنِ مازاد بر ظرفیت)، **PastureSystem** (چراگاه با بره‌های کسری، پشم، گرگ)،
+> **CarpenterSystem** (کارگاه با کارهای موازی و چوبِ پیش‌پرداخت). `VerifyV12` — ۵۸ چک.
+> فیکس‌های این دور: سرمازدگی باغ فقط رویداد بود و بازده را هرگز کم نمی‌کرد (پرچم frostSpoiled — نصف بازده همان چرخه؛
+> VerifyV11 به ۶۱ چک رسید)، باگ سیستمیک nextId در loadِ ۱۵ سیستم — آرگومان پیش‌فرض eager هر بار load به‌ازای هر رکورد
+> nextId را باد می‌کرد و پیوستگی شناسه‌ها می‌شکست (helper nextIdFor در Guild/Caravan/Festival/Carpenter/Debt/Courier/
+> Blacksmith/Chronicle/Auction/Rumor/Tournament/Bounty/Herald/Expedition/Wager + رگرسیون پیوستگی: VerifyV7 → ۸۷)،
+> و رشد چراگاه برای گله‌های زیر ۲۵ رأس همیشه صفر بود (انباشتگر برهٔ کسری).
+> تست کل: `hollow selftest` — **۲۲۵ تست** + ۱۷ سوئیت regression — **ALL GREEN**.
 
 ---
 
@@ -253,4 +266,4 @@ export JAVA_HOME=<jdk-21+> ANDROID_SDK_ROOT=<sdk>
 
 مستندات بیشتر: `docs/SPEC.md` (قرارداد ماژول‌ها + پیوست سیستم‌های v2.6 تا v8.0)، `docs/CLI.md`
 (مرجع خط فرمان + رگرسیون CI)، `docs/FEATURES.md` (ماتریس ۵۷۰ قابلیت + پیوست ۵۳ قابلیت نسخه‌های v2.6 تا v8.0).
-رگرسیون کامل CI: `bash verify.sh` (۱۶ سوئیت + selftest — ALL GREEN).
+رگرسیون کامل CI: `bash verify.sh` (۱۷ سوئیت + selftest — ALL GREEN).

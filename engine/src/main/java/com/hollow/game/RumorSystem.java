@@ -85,6 +85,12 @@ public final class RumorSystem {
         return m == null ? new ArrayList<>() : new ArrayList<>(m.keySet());
     }
 
+    /** saved id if present; otherwise allocate from nextId (never inflates on load) */
+    private int nextIdFor(Object raw){
+        int saved = (int)Json.num(raw, 0);
+        return saved > 0 ? saved : nextId++;
+    }
+
     // ---------------- persistence ----------------
     public String save(){
         JsonW w = new JsonW();
@@ -117,7 +123,7 @@ public final class RumorSystem {
             if(rs != null) for(Object o : rs){
                 Map<String,Object> m = Json.obj(o);
                 if(m == null) continue;
-                Rumor r = new Rumor((int)Json.num(m.get("id"), nextId++), Json.str(m.get("s"), "?"),
+                Rumor r = new Rumor(nextIdFor(m.get("id")), Json.str(m.get("s"), "?"),
                     (float)Json.num(m.get("t"), 0f), (int)Json.num(m.get("d"), 0));
                 r.distortionPerHop = (float)Json.num(m.get("dist"), r.distortionPerHop);
                 rumors.put(r.id, r);

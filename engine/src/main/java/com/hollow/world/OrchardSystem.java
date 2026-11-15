@@ -26,6 +26,7 @@ public final class OrchardSystem {
         public float fruit = 0f;
         public int harvests = 0;
         public int frosts = 0;
+        public boolean frostSpoiled = false;         // blossom frost halves this cycle's yield
         public Orchard(String settlementId, int trees){
             this.settlementId = settlementId;
             this.trees = Math.max(1, trees);
@@ -57,6 +58,7 @@ public final class OrchardSystem {
                 MathX.Rng rng = new MathX.Rng(seed ^ (day * 61L) ^ o.settlementId.hashCode());
                 if(rng.range(0f, 1f) < 0.05f){
                     o.frosts++;
+                    o.frostSpoiled = true;
                     if(listener != null) listener.onOrchardEvent("frost", o.settlementId, o.trees);
                 } else if(listener != null){
                     listener.onOrchardEvent("blossom", o.settlementId, o.trees);
@@ -64,7 +66,8 @@ public final class OrchardSystem {
             }
             if(phase == RIPE_DAY){
                 float maturity = Math.min(1f, o.age / 10f);
-                o.fruit += o.trees * maturity;
+                o.fruit += o.trees * maturity * (o.frostSpoiled ? 0.5f : 1f);
+                o.frostSpoiled = false;
             }
         }
     }
@@ -95,7 +98,7 @@ public final class OrchardSystem {
         w.arr("orchards");
         for(Orchard o : orchards.values())
             w.obj().kv("s", o.settlementId).kv("t", o.trees).kv("age", o.age)
-              .kv("f", o.fruit).kv("hv", o.harvests).kv("fr", o.frosts).endObj();
+              .kv("f", o.fruit).kv("hv", o.harvests).kv("fr", o.frosts).kv("fs", o.frostSpoiled).endObj();
         w.endArr();
         w.endObj();
         return w.toString();
@@ -115,6 +118,7 @@ public final class OrchardSystem {
                 x.fruit = (float)Json.num(m.get("f"), 0f);
                 x.harvests = (int)Json.num(m.get("hv"), 0);
                 x.frosts = (int)Json.num(m.get("fr"), 0);
+                x.frostSpoiled = Json.bool(m.get("fs"), false);
                 orchards.put(x.settlementId, x);
             }
         } catch(Exception ignored){ }

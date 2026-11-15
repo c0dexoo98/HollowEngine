@@ -96,6 +96,12 @@ public final class GuildSystem {
 
     public Guild guild(int id){ return guilds.get(id); }
 
+    /** saved id if present; otherwise allocate from nextId (never inflates on load) */
+    private int nextIdFor(Object raw){
+        int saved = (int)Json.num(raw, 0);
+        return saved > 0 ? saved : nextId++;
+    }
+
     // ---------------- persistence ----------------
     public String save(){
         JsonW w = new JsonW();
@@ -127,7 +133,7 @@ public final class GuildSystem {
                 if(m == null) continue;
                 Guild g;
                 try {
-                    g = new Guild((int)Json.num(m.get("id"), nextId++), Json.str(m.get("name"), "?"),
+                    g = new Guild(nextIdFor(m.get("id")), Json.str(m.get("name"), "?"),
                         GuildSystem.Kind.valueOf(Json.str(m.get("kind"), "MERCHANT")),
                         (int)Json.num(m.get("coffers"), 0));
                 } catch(Exception e){ continue; }

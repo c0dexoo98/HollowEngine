@@ -86,6 +86,12 @@ public final class FestivalSystem {
         return out;
     }
 
+    /** saved id if present; otherwise allocate from nextId (never inflates on load) */
+    private int nextIdFor(Object raw){
+        int saved = (int)Json.num(raw, 0);
+        return saved > 0 ? saved : nextId++;
+    }
+
     // ---------------- persistence ----------------
     public String save(){
         JsonW w = new JsonW();
@@ -111,7 +117,7 @@ public final class FestivalSystem {
             for(Object o : fs){
                 Map<String,Object> m = Json.obj(o);
                 if(m == null) continue;
-                Festival f = new Festival((int)Json.num(m.get("id"), nextId++), Json.str(m.get("name"), "?"),
+                Festival f = new Festival(nextIdFor(m.get("id")), Json.str(m.get("name"), "?"),
                     Json.str(m.get("settle"), ""), (int)Json.num(m.get("start"), day),
                     (int)Json.num(m.get("dur"), 1), (int)Json.num(m.get("cost"), 0));
                 f.moraleBoost = (float)Json.num(m.get("boost"), f.moraleBoost);

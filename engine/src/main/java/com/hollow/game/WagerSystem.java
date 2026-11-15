@@ -79,6 +79,12 @@ public final class WagerSystem {
 
     public int betCount(){ return bets.size(); }
 
+    /** saved id if present; otherwise allocate from nextId (never inflates on load) */
+    private int nextIdFor(Object raw){
+        int saved = (int)Json.num(raw, 0);
+        return saved > 0 ? saved : nextId++;
+    }
+
     // ---------------- persistence ----------------
     public String save(){
         JsonW w = new JsonW();
@@ -103,7 +109,7 @@ public final class WagerSystem {
             for(Object o : bs){
                 Map<String,Object> m = Json.obj(o);
                 if(m == null) continue;
-                Bet b = new Bet((int)Json.num(m.get("id"), nextId++), Json.str(m.get("who"), "?"),
+                Bet b = new Bet(nextIdFor(m.get("id")), Json.str(m.get("who"), "?"),
                     (int)Json.num(m.get("t"), 0), Json.str(m.get("on"), "?"),
                     (int)Json.num(m.get("amt"), 0), (float)Json.num(m.get("odds"), 1f));
                 b.settled = Json.bool(m.get("set"), false);

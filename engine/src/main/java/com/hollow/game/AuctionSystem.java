@@ -94,6 +94,12 @@ public final class AuctionSystem {
         return n;
     }
 
+    /** saved id if present; otherwise allocate from nextId (never inflates on load) */
+    private int nextIdFor(Object raw){
+        int saved = (int)Json.num(raw, 0);
+        return saved > 0 ? saved : nextId++;
+    }
+
     // ---------------- persistence ----------------
     public String save(){
         JsonW w = new JsonW();
@@ -122,7 +128,7 @@ public final class AuctionSystem {
             if(ls != null) for(Object o : ls){
                 Map<String,Object> m = Json.obj(o);
                 if(m == null) continue;
-                Listing l = new Listing((int)Json.num(m.get("id"), nextId++), Json.str(m.get("item"), "?"),
+                Listing l = new Listing(nextIdFor(m.get("id")), Json.str(m.get("item"), "?"),
                     (int)Json.num(m.get("qty"), 0), (int)Json.num(m.get("reserve"), 1),
                     Json.str(m.get("seller"), ""), (int)Json.num(m.get("exp"), day + 1));
                 try { l.state = State.valueOf(Json.str(m.get("state"), "OPEN")); } catch(Exception ignored){ }

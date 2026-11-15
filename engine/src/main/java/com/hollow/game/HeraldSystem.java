@@ -76,6 +76,12 @@ public final class HeraldSystem {
         return out;
     }
 
+    /** saved id if present; otherwise allocate from nextId (never inflates on load) */
+    private int nextIdFor(Object raw){
+        int saved = (int)Json.num(raw, 0);
+        return saved > 0 ? saved : nextId++;
+    }
+
     // ---------------- persistence ----------------
     public String save(){
         JsonW w = new JsonW();
@@ -99,7 +105,7 @@ public final class HeraldSystem {
             for(Object o : es){
                 Map<String,Object> m = Json.obj(o);
                 if(m == null) continue;
-                Edict e = new Edict((int)Json.num(m.get("id"), nextId++), Json.str(m.get("name"), "?"),
+                Edict e = new Edict(nextIdFor(m.get("id")), Json.str(m.get("name"), "?"),
                     Json.str(m.get("fx"), "?"), (float)Json.num(m.get("mag"), 0f),
                     Math.max(1, (int)Json.num(m.get("rem"), 1)));
                 e.remainingDays = (int)Json.num(m.get("rem"), e.remainingDays);   // exact remaining, even 0 — no resurrection

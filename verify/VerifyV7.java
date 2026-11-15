@@ -185,6 +185,12 @@ public class VerifyV7 {
         cs6.load(jsonL);
         check("caravan: lost state round-trips", cs6.caravan(cl.id) != null
               && cs6.caravan(cl.id).state == CaravanSystem.State.LOST, "");
+
+        // regression: reloading records must not inflate nextId — ids continue from the save
+        cs3.define(new CaravanSystem.Route("oak-iron", "oak", "iron").travelDays(3f));
+        CaravanSystem.Caravan cNew = cs3.send("oak-iron", cargo, 1);
+        check("caravan: id continues after load", cNew != null && cNew.id == 2,
+              "id=" + (cNew == null ? -1 : cNew.id));
     }
     private static int saleOf(CaravanSystem.Caravan c){
         int units = 0;
