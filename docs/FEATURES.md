@@ -3,8 +3,9 @@
 چک‌لیست مستر توسعه موتور. هر قابلیت شناسه یکتا دارد (`CAT-NNN`) و در همین فایل 
 با `- [x]` (پیاده‌سازی‌شده و تست‌شده) یا `- [ ]` (در صف) ردیابی می‌شود.
 
-- **نسخه فعلی موتور:** 2.5.0 (`hollow-everything`) — ماتریس کامل ۵۷۰/۵۷۰ ✅
-- **ساختار نوبت‌ها:** Batch 1 هسته/حافظه/ریاضی/شیء + CLI → Batch 2 رندر → Batch 3 فیزیک/صدا/انیمیشن → Batch 4 AI/UI/ورودی → Batch 5 شبکه/سیو/بومی‌سازی/دارایی → Batch 6 VFX/محیط/دیباگ/VR
+- **نسخه فعلی موتور:** 8.0.0 (`kingdom`) — ماتریس اصلی ۵۷۰/۵۷۰ ✅ + **پیوست نسخه‌ها (بخش ۲۸ تا ۳۳): ۵۳ قابلیت v2.6 تا v8.0** — جمع کل **۶۲۳/۶۲۳** ✅
+- **ساختار نوبت‌ها:** Batch 1 هسته/حافظه/ریاضی/شیء + CLI → Batch 2 رندر → Batch 3 فیزیک/صدا/انیمیشن → Batch 4 AI/UI/ورودی → Batch 5 شبکه/سیو/بومی‌سازی/دارایی → Batch 6 VFX/محیط/دیباگ/VR → Batch 7 تکمیل ماتریس → **v2.6 تا v8.0: پیوست‌های سیستم‌محور (بخش ۲۸–۳۳)**
+- **قاعدهٔ نگهداری مستندات:** از v8.0 به بعد، این فایل و `README.md` با هر نسخهٔ موتور همگام می‌شوند؛ هر سیستم جدید یک آیتم چک‌شده در پیوست می‌گیرد.
 
 | دسته | شناسه‌ها | انجام‌شده | کل | نوبت |
 |---|---|---|---|---|
@@ -743,3 +744,83 @@ _ساخت APK، صادرات، CI و افزونه‌ها_
 - [x] **EXT-008** — Language Server پروتکل برای اسکریپت (VSCode)
 - [x] **EXT-009** — پروفایلر ریموت (نمایش روی دسکتاپ)
 - [x] **EXT-010** — بسته‌سازی CLI به single-jar قابل توزیع
+
+---
+
+# پیوست نسخه‌ها — v2.6 تا v8.0 (۵۴ قابلیت)
+
+از v2.6 به بعد قابلیت‌ها به‌صورت «سیستم‌های کامل تست‌پذیر» اضافه می‌شوند، نه آیتم‌های ماتریس Batch.
+هر سیستم قطعی (deterministic)، headless-testable و دارای save/load متقارن JSON است و با سوئیت رگرسیون خودش (`verify/Verify*.java`) پوشش داده می‌شود.
+
+## 28. v2.6 'hollow-connected' — netcode rollback + navmesh (4/4)
+
+- [x] **C26-001** — `net/InputBuffer` — رینگ ورودی per-player با کدگذاری ۳بخشی افزونه‌ای (GGPO-style)
+- [x] **C26-002** — `net/Transport` + Relay — انتقال دیتاگرام انتزاعی + شبیه‌ساز latency/jitter/loss
+- [x] **C26-003** — `net/RollbackSim` — نشست rollback قطعی: rewind + resim در پنجره ۷ فریمی + شمارنده‌های misprediction/rollback/stall
+- [x] **C26-004** — `nav/NavMesh` — navmesh چندضلعی با merge حریصانه rect
+
+## 29. v3.0 'hollow-toolkit' — گیم‌پلی + پلتفرم + ابزار (11/11)
+
+- [x] **TK3-001** — `gameplay/Inventory` — انبارم وزنی، تجهیز، دستورهای کرفت، save JSON
+- [x] **TK3-002** — `gameplay/Combatant` — خط لوله آسیب (hook→مقاومت→ناحیه بدن)، مرگ/احیا، وضعیت زمان‌دار
+- [x] **TK3-003** — `gameplay/Weapon` — حالت‌های semi/auto/burst، پراکندگی/لگد، خشاب + پُرکردن خودکار از Inventory
+- [x] **TK3-004** — `gameplay/Dialogue` — گفتگو شاخه‌ای با شرط، افکت، ردیابی بازدید
+- [x] **TK3-005** — `gameplay/QuestSystem` — اهداف با probe پیشرفت، gating پرچم، زنجیره کوئست
+- [x] **TK3-006** — `gameplay/Tutorial` — گام با probe، gate آنلاک، رد شدن خودکار با timeout
+- [x] **TK3-007** — `platform/PluginHost` — چرخه حیات افزونه، ترتیب وابستگی، قرنطینه کرش
+- [x] **TK3-008** — `platform/MobileGovernor` — نردبان کیفیت تطبیقی (فریم‌تایم/باتری/دما)
+- [x] **TK3-009** — رندر: PlanarReflection — دوربین آینه، صفحه clip مایل، محو فاصله
+- [x] **TK3-010** — CLI `hollow edit` — ادیتور صحنه headless (place/move/rotate/light/delete)
+- [x] **TK3-011** — CLI `hollow pack` — بسته‌بندی پروژه به dist/*.zip با --with-runtime
+
+## 30. v4.0 'aaa-core' — فیکس‌های AAA + سیستم‌های دنیا (6/6)
+
+_۴۰ فیکس رگرسیون واقعی (R1-R15 صحنه/رندر، P1-P14 فیزیک/انیمیشن/صدا، N1-N12 شبکه/سیو) — کاتالوگ کامل در BUGFIX-PLAN-v4.md_
+
+- [x] **AAA-001** — `world/TerrainSystem` — sculpt/splat/holes/raycast
+- [x] **AAA-002** — `world/OceanSystem` — امواج Gerstner + شناوری
+- [x] **AAA-003** — `world/WeatherSystem` — پریست/بلند/خیس‌شدگی/رعد
+- [x] **AAA-004** — `game/AbilitySystem` — GAS: tag/attribute/effect/ability
+- [x] **AAA-005** — `game/WaveDirector` — موج دشمن/بی‌پایان از JSON
+- [x] **AAA-006** — `game/ReplaySystem` — تراک فشرده + save/load JSON
+
+## 31. v5.0 'living-world' — دنیای زنده (8/8)
+
+- [x] **LW5-001** — `ai/StealthSystem` — مخروط دید، متر کشف ۴حالته، نویز، LOS قابل‌تعویض
+- [x] **LW5-002** — `gameplay/ProgressionSystem` — XP 80·L^1.5، درخت مهارت با پیش‌نیاز، respec
+- [x] **LW5-003** — `gameplay/FactionSystem` — ماتریس روابط، شهرت ±100 با سرریز متحد/دشمن، جنگ/صلح
+- [x] **LW5-004** — `gameplay/LootSystem` — جدول وزنی، کمیابی، luck skew، pity counter
+- [x] **LW5-005** — `gameplay/EconomySystem` — فروشندگان با موجودی/حاشیه سود، تراکنش اعتبارسنجی‌شده
+- [x] **LW5-006** — `world/SeasonsSystem` — چرخه ۴فصل، باندهای دما + نویز روزانه، طول روز
+- [x] **LW5-007** — `audio/MusicDirector` — موزیک تطبیقی با dwell-then-crossfade و سوییچ نبرد
+- [x] **LW5-008** — `ui/MapMarkerSystem` — مارکر دسته‌ای، فاصله/سمت، پاک‌سازی شعاعی، نوار قطب‌نما
+
+## 32. v6.0 + v7.0 — بقاستان و تمدن (16/16)
+
+- [x] **LW6-001** — `gameplay/SurvivalSystem` — گرسنگی/تشنگی/گرما/خواب با دمای محیط و باران، افکت + مرگ/احیا
+- [x] **LW6-002** — `world/FarmingSystem` — کشت با باند دما و فصل ترجیحی، آبیاری، سرمازدگی، برداشت قطعی
+- [x] **LW6-003** — `game/BaseBuildingSystem` — بلوپرینت، جای‌گذاری گریدی با چرخش، آسیب/تعمیر/تخریب با عودت
+- [x] **LW6-004** — `ai/SquadCommander` — آرایش FOLLOW گوه / HOLD حلقه / ATTACK محاصره، فرمان عضوی
+- [x] **LW6-005** — `game/AchievementSystem` — دستاورد آماری با آستانه، unlock-once، پیشرفت
+- [x] **LW6-006** — `game/DifficultyDirector` — DDA با هدف انباشتی، hold-then-ramp، بودجه برخورد
+- [x] **LW6-007** — `world/EcosystemSystem` — جمعیت گیاه/شکار/شکارچی، شکار وابسته به تراکم، انقراض
+- [x] **LW6-008** — `game/JournalSystem` — codex جانور/مکان/افسانه + یادداشت شخصی
+- [x] **CIV7-001** — `world/SettlementSystem` — دهکده با جمعیت/انبار/کارگر/مسکن، قحطی/رشد، صف ساخت
+- [x] **CIV7-002** — `world/CaravanSystem` — کاروان تجاری با قیمت کم‌بودی محصور، غارت، اتصال خزانه
+- [x] **CIV7-003** — `gameplay/SkillTreeSystem` — DAG مهارت با tier/هزینه/پیش‌نیاز + respec کامل
+- [x] **CIV7-004** — `game/DiplomacySystem` — روابط متقارن با drift، پیمان با آستانه، جنگ/صلح
+- [x] **CIV7-005** — `world/TerritorySystem` — کنترل منطقه بین فکشن‌ها، تصاحب با آستانه+اختلاف
+- [x] **CIV7-006** — `game/BountySystem` — تابلوی جایزه با tier/انقضا، آمار شکارچی
+- [x] **CIV7-007** — `world/NpcScheduler` — روال روزانه خواب/کار/فراغت با شیفت شبانه
+- [x] **CIV7-008** — `gameplay/CookingSystem` — دستور پخت، کیفیت قطعی POOR..EXCELLENT، serve به Survival
+
+## 33. v8.0 'kingdom' — پادشاهی (8/8)
+
+- [x] **KG8-001** — `game/ResearchSystem` — درخت فناوری، دانش پژوهشگران × کتابخانه، پاداش آماری
+- [x] **KG8-002** — `world/QuarrySystem` — گره استخراج با ذخیره پایانه، بازتولید، از نوکارافتادن/recovered
+- [x] **KG8-003** — `game/TreasurySystem` — خزانه با دفتر کل چرخشی، مالیات per-head، دستمزد روزانه، گارد ورشکستگی
+- [x] **KG8-004** — `world/MigrationSystem` — مهاجرت بین دهکده‌ها: قحطی می‌راند، فراوانی+مسکن می‌کشد، جمعیت پایسته
+- [x] **KG8-005** — `game/JusticeSystem` — جنایت → سطح تعقیب، بازداشت با حکم متناسب، جریمه، آزادی خودکار
+- [x] **KG8-006** — `game/AuctionSystem` — حراج با رزرو + افزایش حداقلی، فروش با کارمزد خانه، انقضا
+- [x] **KG8-007** — `world/FestivalSystem` — جشنواره زمان‌بندی‌شده، boost اخلاقی انباشتی، start/end رویدادی
+- [x] **KG8-008** — `game/ChronicleSystem` — سالنامه با امتیاز شهرت، اخراج کم‌شهرت‌ترین، top/latest/legendary، بازگویی قطعی

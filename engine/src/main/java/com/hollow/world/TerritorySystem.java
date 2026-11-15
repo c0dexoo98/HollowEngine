@@ -43,7 +43,7 @@ public final class TerritorySystem {
     /** a faction is present in a region: grows its control, drains rivals */
     public void pushPresence(String regionId, String factionId, float strength){
         Region r = regions.get(regionId);
-        if(r == null || strength <= 0f) return;
+        if(r == null || strength <= 0f || factionId == null || factionId.isEmpty()) return;
         float cur = r.control.getOrDefault(factionId, 0f);
         r.control.put(factionId, MathX.clamp(cur + strength, 0f, 100f));
         for(Map.Entry<String, Float> kv : r.control.entrySet())

@@ -79,6 +79,16 @@ public class VerifyV7 {
               && events.contains("built"), ss.describe("poor"));
         check("settle: house adds housing + farmers", poor.housing() == 12 && poor.farmers == 1, ss.describe("poor"));
 
+        // regression: queueing a second building mid-construction must not restart the first
+        SettlementSystem.Settlement hamlet = ss.found("ham", "Hamlet");
+        hamlet.wood = 40f;
+        ss.queueBuilding("ham", "house1", 10, 0);
+        ss.tickDay();                                   // day 1 of house1's construction
+        ss.queueBuilding("ham", "house2", 10, 0);       // must NOT reset house1's progress
+        for(int i = 0; i < 2; i++) ss.tickDay();        // house1 reaches day 3 → built on schedule
+        check("settle: mid-queue doesn't restart work", hamlet.buildings.contains("house1")
+              && !hamlet.buildings.contains("house2"), ss.describe("ham"));
+
         String json = ss.save();
         SettlementSystem ss2 = new SettlementSystem();
         ss2.load(json);
@@ -211,6 +221,12 @@ public class VerifyV7 {
         dp.shift("rome", "carthage", 30);
         check("diplo: peace negotiated", dp.makePeace("rome", "carthage") && !dp.atWar("rome", "carthage"), "");
 
+        // regression: a faction has no relation with itself
+        dp.declareWar("rome", "rome");
+        dp.shift("rome", "rome", 50);
+        check("diplo: self-relations ignored", !dp.atWar("rome", "rome")
+              && !dp.relations.containsKey("rome|rome") && !dp.propose("rome", "rome", DiplomacySystem.Treaty.TRADE), "");
+
         // drift: alliance warms, neutral decays
         dp.shift("gaul", "rome", 70);
         dp.propose("gaul", "rome", DiplomacySystem.Treaty.ALLIANCE);
@@ -244,6 +260,10 @@ public class VerifyV7 {
         ts.pushPresence("valley", "blue", 10f);
         check("terr: rivals bleed from presence", ts.controlOf("valley", "red") < 40f
               && ts.controlOf("valley", "blue") == 10f, "" + ts.controlOf("valley", "red"));
+        // regression: blank faction ids must not pollute the control map
+        ts.pushPresence("valley", "", 25f);
+        check("terr: blank faction ignored", ts.ownerOf("valley").isEmpty()
+              && !ts.region("valley").control.containsKey(""), "");
 
         // push red to capture
         while(ts.controlOf("valley", "red") < 70f) ts.pushPresence("valley", "red", 2f);
@@ -283,6 +303,12 @@ public class VerifyV7 {
         check("bounty: stale bounty expires", b2.state == BountySystem.State.EXPIRED
               && events.contains("expired"), events.toString());
 
+        // regression: a claimed bounty must NOT expire out from under its hunter
+        BountySystem.Bounty b3 = bs.post("Ghost of the marsh", 80, 2, 1);   // expires at day > 4
+        bs.claim(b3.id, "kai");
+        bs.tickDay(); bs.tickDay();
+        check("bounty: claimed survives expiry", b3.state == BountySystem.State.CLAIMED, "" + b3.state);
+
         String json = bs.save();
         BountySystem bs2 = new BountySystem();
         bs2.load(json);
@@ -304,6 +330,13 @@ public class VerifyV7 {
               && sc.activityAt(smith, 3) == NpcScheduler.Activity.SLEEP, "");
         check("sched: shift is work", sc.activityAt(smith, 12) == NpcScheduler.Activity.WORK, "");
         check("sched: off-hours leisure", sc.activityAt(smith, 20) == NpcScheduler.Activity.LEISURE, "");
+
+        // regression: night shifts that wrap midnight (22..06) must resolve as WORK
+        NpcScheduler.Profile guard = sc.register(new NpcScheduler.Profile("guard")
+            .homeAt(3, 0, 3).workAt(1, 0, 1).shift(22, 6));
+        check("sched: night shift is work", sc.activityAt(guard, 23) == NpcScheduler.Activity.WORK
+              && sc.activityAt(guard, 2) == NpcScheduler.Activity.WORK, "");
+        check("sched: guard off-duty by day", sc.activityAt(guard, 12) == NpcScheduler.Activity.LEISURE, "");
 
         sc.update(12);
         check("sched: work anchor applied", sc.current.get("smith") == NpcScheduler.Activity.WORK

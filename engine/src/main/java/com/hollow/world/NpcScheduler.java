@@ -50,6 +50,12 @@ public final class NpcScheduler {
     public Profile profile(String name){ return npcs.get(name); }
 
     public Activity activityAt(Profile p, int hour){
+        // night-shift aware: a shift that wraps midnight (workEnd <= workStart) is still work
+        boolean nightShift = p.workEnd <= p.workStart;
+        boolean inShift = nightShift
+            ? (hour >= p.workStart || hour < p.workEnd)
+            : (hour >= p.workStart && hour < p.workEnd);
+        if(inShift) return Activity.WORK;
         boolean night = hour >= p.sleepStart || hour < p.sleepEnd;
         if(night) return Activity.SLEEP;
         if(hour >= p.workStart && hour < p.workEnd) return Activity.WORK;

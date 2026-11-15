@@ -144,3 +144,29 @@ DO NOT modify files in core/, scene/, assets/ (except GltfLoader per Agent A), r
 
 ## Definition of done for every agent
 `javac` compiles clean. No TODO left in code you own (design decisions resolved). Report: files created + public APIs + JSON schemas + deviations from SPEC (with reasons).
+
+## Annex — v2.6 to v8.0 systems (current contract additions)
+
+Since v2.6 the engine grows through self-contained "systems" placed in existing packages
+(`com.hollow.world` / `com.hollow.game` / `com.hollow.gameplay` / `com.hollow.ai` / `com.hollow.audio` / `com.hollow.ui`).
+Every system in the annex follows the same contract:
+
+1. **Deterministic** — no wall-clock, no `Math.random()`; randomness only via `com.hollow.core.MathX.Rng` seeded from a public `seed` field.
+2. **Headless-testable** — a plain constructor + explicit `tickDay()`/`update(dt)` drives all simulation; no GL/audio/thread required.
+3. **Symmetric persistence** — `save()` -> JSON string via `JsonW`, `load(String)` via `JsonV`; roundtrip restores all public state.
+4. **Events** — state changes publish through a small `Listener` interface on a public field (game layer wires it; the system never calls `System.out`).
+5. **Wiring** — cross-system effects are explicit interfaces or direct references (e.g. `CookingSystem.serve(dish, SurvivalSystem)`, `MigrationSystem(SettlementSystem)`, `CaravanSystem.Market`).
+6. **Regression cover** — each version batch owns a suite: `verify/VerifyV5.java` (78), `VerifyV6.java` (85), `VerifyV7.java` (81), `VerifyV8.java` (65) plus `VerifyAaa` (54) for v4; `verify.sh` runs build + selftest (209) + all suites and must stay ALL GREEN before any push.
+
+Package map of the annex (systems per package, latest version):
+
+| Package | Systems (v) |
+|---|---|
+| `com.hollow.world` | Terrain/Ocean/Weather (4), Seasons/MapMarker (5), Farming/Ecosystem (6), Settlement/Caravan/Territory/NpcScheduler (7), Quarry/Migration/Festival (8) |
+| `com.hollow.game` | AbilitySystem/WaveDirector/Replay (4), Achievement/DifficultyDirector/Journal/BaseBuilding (6), Diplomacy/Bounty (7), Research/Treasury/Justice/Auction/Chronicle (8) |
+| `com.hollow.gameplay` | Inventory/Combatant/Weapon/Dialogue/Quest/Tutorial (3), Progression/Faction/Loot/Economy (5), Survival/SkillTree/Cooking (6-8) |
+| `com.hollow.ai` | StealthSystem (5), SquadCommander (6) |
+| `com.hollow.audio` | MusicDirector (5) |
+| `com.hollow.net` | InputBuffer/Transport+Relay/RollbackSim (2.6) |
+| `com.hollow.nav` | NavMesh (2.6) |
+| `com.hollow.platform` | PluginHost/MobileGovernor (3) |

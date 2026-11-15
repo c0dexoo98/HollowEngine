@@ -150,3 +150,21 @@ script: scripts/demo.flow.json steps=7 dbg[script=scripts/demo.flow.json step=-1
   2 BREAK {"do":"emit","event":"low_hp"}
 dbg[script=scripts/demo.flow.json step=2 BREAK bps=1 hits=1]
 ```
+
+## رگرسیون کامل CI — `bash verify.sh`
+
+یک فرمان، کل سلامت موتور (بیلد + selftest + همه سوئیت‌های رگرسیون + bench). خروجی باید **`VERIFY: ALL GREEN`** باشد؛ هر FAIL قبل از push باید فیکس شود.
+
+```
+== build (engine + cli)                      OK  build
+== selftest                                  OK  selftest (209 checks)
+== regression suites                         VerifyMath2 (8) / VerifyInfra (9) / VerifyAudio (8) /
+                                             VerifyPhysics (8) / VerifyNet (8) / VerifyNav (10) /
+                                             VerifyGameplay (41) / VerifyPlatform (22) /
+                                             VerifyAaa (54, v4) / VerifyV5 (78) / VerifyV6 (85) /
+                                             VerifyV7 (81, v7) / VerifyV8 (65, v8) / BenchCore
+== demo asserts                              demo-fps (5) / engine-tests (8)
+```
+
+هر نسخهٔ جدید: سوئیت خودش را به `verify/VerifyV<N>.java` اضافه کن، نامش را در لیست `verify.sh` ثبت کن،
+و مستندات (`README.md` + `docs/FEATURES.md` پیوست) را همگام با نسخه به‌روز کن.

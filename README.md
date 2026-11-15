@@ -118,6 +118,47 @@
 > `hollow lint`، دیباگر CLI، **پروفایلر ریموت** (فریم JSON/GZIP + کلاینت جدولی)، **بسته single-jar** قابل توزیع.
 > تست: `hollow selftest` — **۱۸۰ تست** (همه سبز) — ماتریس کامل ۵۷۰/۵۷۰.
 
+> **v2.6** (`hollow-connected`) — netcode **Rollback** سبک GGPO (InputBuffer سه‌بخشی با کدگذاری
+> افزونه‌ای + RollbackSim با rewind/resim پنجره ۷ فریمی + شمارنده‌های HUD)، **Transport/Relay**
+> انتزاعی با شبیه‌ساز latency/jitter/loss، **NavMesh چندضلعی** (merge حریصانه rect).
+>
+> **v3.0** (`hollow-toolkit`) — پکیج `com.hollow.gameplay`: **Inventory** (انبارم/وزن/slot/کرفت)،
+> **Combatant** (خط لوله آسیب + ناحیه بدن + وضعیت زمان‌دار)، **Weapon** (semi/auto/burst + خشاب)،
+> **Dialogue** (شاخه‌ای + شرط + افکت)، **QuestSystem** (هدف با probe + زنجیره)، **Tutorial**.
+> پکیج `com.hollow.platform`: **PluginHost** (چرخه حیات + قرنطینه کرش)، **MobileGovernor**
+> (نردبان کیفیت بر اساس فریم‌تایم/باتری/دما). رندر: PlanarReflection. CLI: `hollow edit`
+> (ادیتور صحنه headless) و `hollow pack` (بسته‌بندی dist). selftest: ۲۴۳ تست.
+>
+> **v4.0** (`aaa-core`) — **۴۰ فیکس رگرسیون واقعی** (R/P/N با چک رگرسیون در VerifyAaa) +
+> ۶ سیستم AAA: **Terrain** (sculpt/splat/hole/raycast)، **Ocean** (Gerstner + شناوری)،
+> **Weather** (پریست/بلند/خیس‌شدگی/رعد)، **AbilitySystem (GAS)** (tag/attribute/effect/ability)،
+> **WaveDirector** (موج/بی‌پایان/JSON)، **Replay** (تراک فشرده + JSON). سوئیت `VerifyAaa` — ۵۴ چک.
+>
+> **v5.0** (`living-world`) — ۸ سیستم: **StealthSystem** (مخروط دید + متر کشف ۴حالته + نویز)،
+> **ProgressionSystem** (XP 80·L^1.5 + درخت مهارت + respec)، **FactionSystem** (ماتریس روابط + شهرت ±100)،
+> **LootSystem** (جدول وزنی + شانس + pity counter)، **EconomySystem** (فروشنده + حاشیه سود + تراکنش)،
+> **SeasonsSystem** (۴ فصل + دما + طول روز)، **MusicDirector** (موزیک تطبیقی threat→intensity)،
+> **MapMarkerSystem** (مارکر دسته‌ای + قطب‌نما). سوئیت `VerifyV5` — ۷۸ چک.
+>
+> **v6.0** (`living-world II`) — ۸ سیستم: **SurvivalSystem** (گرسنگی/تشنگی/گرما/خواب با دمای محیط و باران)،
+> **FarmingSystem** (کشت + آبیاری + سرمازدگی + برداشت قطعی)، **BaseBuildingSystem** (بلوپرینت/گرید/چرخش/تعمیر)،
+> **SquadCommander** (آرایش گوه/حلقه + فرمان عضوی)، **AchievementSystem**، **DifficultyDirector** (DDA)،
+> **EcosystemSystem** (گیاه/شکارچی/شکار با انقراض)، **JournalSystem** (codex + یادداشت). `VerifyV6` — ۸۵ چک.
+>
+> **v7.0** (`civilization`) — ۸ سیستم تمدن: **SettlementSystem** (دهکده/جمعیت/انبار/کارگر/صف ساخت)،
+> **CaravanSystem** (کاروان تجاری با قیمت‌گذاری کم‌بودی + غارت)، **SkillTreeSystem** (DAG + respec)،
+> **DiplomacySystem** (پیمان/جنگ/صلح با آستانه رابطه)، **TerritorySystem** (رقاب کنترل منطقه + تصاحب)،
+> **BountySystem** (تابلوی جایزه + شکارچی)، **NpcScheduler** (روال روزانه + شیفت شبانه)،
+> **CookingSystem** (دستور پخت + کیفیت قطعی + اتصال Survival). `VerifyV7` — ۸۱ چک.
+>
+> **v8.0** (`kingdom`) — ۸ سیستم پادشاهی: **ResearchSystem** (درخت فناوری با دانش پژوهشگران)،
+> **QuarrySystem** (معادن با ذخیره پایانه + بازتولید + از نوکارافتادن)، **TreasurySystem** (خزانه + دفتر کل + مالیات/دستمزد + ورشکستگی)،
+> **MigrationSystem** (مهاجرت بین دهکده‌ها: قحطی می‌راند، فراوانی می‌کشد)، **JusticeSystem** (جنایت/سطح تعقیب/بازداشت/جریمه)،
+> **AuctionSystem** (حراج با رزرو + کارمزد خانه)، **FestivalSystem** (جشنواره با boost اخلاقی)،
+> **ChronicleSystem** (سالنامه تاریخ با امتیاز شهرت + بازگویی قطعی). `VerifyV8` — ۶۵ چک.
+> تست کل: `hollow selftest` — **۲۰۹ تست** + ۱۱ سوئیت regression — **ALL GREEN**.
+> نگهداری مستندات: از v8.0 به بعد `README.md` و `docs/*.md` با هر نسخه همگام می‌شوند.
+
 ---
 
 ## معماری (ماژول‌ها)
@@ -130,15 +171,16 @@
 | `com.hollow.render` | **رندرر PBR بازتابنده GLES 3.0**: Cook-Torrance GGX، سایه‌ی Directional + PCF، Sky رویه‌ای (ستاره/ماه)، مه حجمی، اسکینینگ GPU (۶۴ مفصل)، اسپرایت billboard، پارتیکل نقطه‌ای، آب، خطوط دیباگ، **پست‌پروسس کامل** (Bloom + ACES + Color Grade + Vignette + Grain + CA + FXAA)، کیفیت‌های LOW→ULTRA | Renderer/Material/PostProcess |
 | `com.hollow.anim` | انیمیشن اسکلتی: سمپل، Crossfade بلندینگ، State Machine با شرط/رویداد | Animation Blueprint |
 | `com.hollow.physics` | World ایستا/داینامیک، **CharacterController collide-and-slide با step-up**، Raycast (box/sphere/capsule)، تریگرها با رویداد، **NavGrid + A* با smooth** | Chaos (سبک) + Navigation |
-| `com.hollow.ai` | **Behavior Tree کامل** (selector/sequence/parallel/inverter/repeat/wait/condition/action)، Blackboard، Perception (مخروط دید + occlusion raycast + شنوایی)، Agent با گشت/تعقیب/جست‌وجو/حمله | AI/BehaviorTree/EQS |
-| `com.hollow.audio` | میکسر چندباسه (master/music/sfx/ambient/voice)، صداگذاری سه‌بعدی (equal-power pan + attenuation)، WAV/OGG | MetaSounds (سبک) |
+| `com.hollow.game` | GameApp، Bootstrap، InputActions (مپینگ JSON)، SaveSystem (اسلات)، Localization با RTL، GameConfig — **v3+**: QuestSystem، Dialogue، Tutorial، AchievementSystem، DifficultyDirector، JournalSystem، BaseBuildingSystem، BountySystem، DiplomacySystem — **v8**: ResearchSystem، TreasurySystem، JusticeSystem، AuctionSystem، ChronicleSystem | GameMode/Enhanced Input/SaveGame |
+| `com.hollow.gameplay` | **v3–v8**: Inventory، Combatant، Weapon، ProgressionSystem، FactionSystem، LootSystem، EconomySystem، SurvivalSystem، SkillTreeSystem، CookingSystem | Gameplay Framework |
+| `com.hollow.world` | **v2.4+2.5**: DayNightCycle، GlobalWind، Portal، WaterDomain، TriggerZone، AudioZone + InteriorBlend، PrewarmQueue، MemoryBudget، WorldMerger، WorldSnapshot، HeadlessWorld، TemperatureVolume، VideoProjector، PlanarMirror، RainWindow، WaterSurface — **v4+**: Terrain، Ocean، Weather — **v5+**: SeasonsSystem، MapMarkerSystem — **v6+**: FarmingSystem، EcosystemSystem — **v7+**: SettlementSystem، CaravanSystem، TerritorySystem، NpcScheduler — **v8**: QuarrySystem، MigrationSystem، FestivalSystem | World/Level streaming |
+| `com.hollow.ai` | Behavior Tree کامل، Blackboard، Perception، Agent — **v5+**: StealthSystem — **v6+**: SquadCommander (آرایش/فرمان) | AI/BehaviorTree/EQS |
+| `com.hollow.audio` | میکسر چندباسه (master/music/sfx/ambient/voice)، صداگذاری سه‌بعدی، WAV/OGG — **v5+**: MusicDirector (موزیک تطبیقی) | MetaSounds (سبک) |
 | `com.hollow.ui` | UI رتین‌مد: Panel/Label/Button/Image/Slider/Checkbox/ProgressBar/Toast، انکر لِی‌اوت، رویداد کلیک، **متن فارسی/عربی صحیح روی اندروید** (HarfBuzz خود اندروید) | UMG |
 | `com.hollow.vfx` | سیستم پارتیکل CPU: rate/burst/curves (اندازه/رنگ بر عمر)، gravity/drag، additive | Niagara (سبک) |
 | `com.hollow.script` | **FlowScript** — گراف رویداد→شرط→اقدام داده‌محور با ۳۰+ اکشن، زبان شرط مینی (`has_item()`, `dist_to() < 5`, `chance(0.3)`...)، EventBus با تاخیر قطعی | Blueprint (داده‌محور) |
 | `com.hollow.cine` | **Sequencer** — تایم‌لاین سینماتیک + تراک انیمیشن/محیط/اسپلاین دوربین (v2.4) | Sequencer |
 | `com.hollow.vr` | **v2.5**: VrRig (multi-view)، HeadTracking، AsyncReprojection، TouchController، IPD، ComfortVignette، پروفایل 90Hz، QualityScaler، BinauralAudio، HeadlessPipeline | VR |
-| `com.hollow.game` | GameApp، Bootstrap، InputActions (مپینگ JSON)، SaveSystem (اسلات)، Localization با RTL، GameConfig | GameMode/Enhanced Input/SaveGame |
-| `com.hollow.world` | **v2.4+2.5**: DayNightCycle، GlobalWind، Portal، WaterDomain، TriggerZone، AudioZone + InteriorBlend، PrewarmQueue، MemoryBudget، WorldMerger، WorldSnapshot، HeadlessWorld، TemperatureVolume، VideoProjector، PlanarMirror، RainWindow، WaterSurface | World/Level streaming |
 | `com.hollow.debug` | **v2.4+2.5**: ConsolePanel، FpsGraph، FrameStepper، SystemStats، EventMonitor، Telemetry + EntityInspector، InputReplay، RenderHeatMap، LeakMonitor، RemoteProfiler | DevTools |
 | `com.hollow.net` | TcpChannel + **UdpLink قابل‌اطمینان** (seq/ack/resend)، DeltaSnapshot، Prediction/Reconcile، EntityInterp، Lobby کددار، SendQueue، Monitor | Networking |
 | `runtime-android` | EngineActivity + GLSurfaceView ES3 + ورودی لمسی دو-منطقه‌ای (استیک مجازی+نگاه)، AudioTrack، BitmapFactory، **متن با شکل‌دهی صحیح**، OGG با MediaCodec | Platform Android |
@@ -181,4 +223,6 @@ export JAVA_HOME=<jdk-21+> ANDROID_SDK_ROOT=<sdk>
 ./gradlew :cli:installDist                   # CLI
 ```
 
-مستندات بیشتر: `docs/SPEC.md` (قرارداد ماژول‌ها)، `docs/ARCHITECTURE.md`، `docs/FEATURES.md` (ماتریس قابلیت‌ها در برابر Unreal).
+مستندات بیشتر: `docs/SPEC.md` (قرارداد ماژول‌ها + پیوست سیستم‌های v2.6 تا v8.0)، `docs/CLI.md`
+(مرجع خط فرمان + رگرسیون CI)، `docs/FEATURES.md` (ماتریس ۵۷۰ قابلیت + پیوست ۵۳ قابلیت نسخه‌های v2.6 تا v8.0).
+رگرسیون کامل CI: `bash verify.sh` (۱۳ سوئیت + selftest — ALL GREEN).

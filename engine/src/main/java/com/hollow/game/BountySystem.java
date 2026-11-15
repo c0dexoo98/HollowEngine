@@ -74,11 +74,11 @@ public final class BountySystem {
         return true;
     }
 
-    /** advance a day: expired bounties leave the board */
+    /** advance a day: only unclaimed (OPEN) bounties expire — claimed ones stay with their hunter */
     public void tickDay(){
         day++;
         for(Bounty b : bounties.values()){
-            if((b.state == State.OPEN || b.state == State.CLAIMED) && day > b.expiresDay){
+            if(b.state == State.OPEN && day > b.expiresDay){
                 b.state = State.EXPIRED;
                 if(listener != null) listener.onBountyEvent("expired", b.id, b.target);
             }

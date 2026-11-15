@@ -4195,6 +4195,69 @@ public final class Commands {
             pass("v7 bounty + schedule + cooking");
         } catch(Throwable t){ fail("v7-bounty-sched-cook", t); failures++; }
 
+        // --- v8.0.0 systems: research / quarry / treasury / migration / justice / auction / festival / chronicle ---
+        try {
+            com.hollow.game.ResearchSystem rs = new com.hollow.game.ResearchSystem();
+            rs.define(new com.hollow.game.ResearchSystem.Tech("wheel", "Wheel").costs(10).effect("build", 0.1f));
+            rs.scholars = 5;
+            for(int i = 0; i < 4; i++) rs.tickDay();
+            if(!rs.unlock("wheel") || Math.abs(rs.bonus("build") - 0.1f) > 0.001f) throw new AssertionError("research");
+
+            com.hollow.world.QuarrySystem qs = new com.hollow.world.QuarrySystem();
+            com.hollow.world.QuarrySystem.Node mine = qs.define(new com.hollow.world.QuarrySystem.Node("m1", "stone")
+                .workers(4).yield(1f).reserve(100f, 100f).regen(2f));
+            float got = qs.tickDay();
+            if(Math.abs(got - 4f) > 0.001f || mine.depleted) throw new AssertionError("quarry " + got);
+            pass("v8 research + quarry");
+        } catch(Throwable t){ fail("v8-res-quarry", t); failures++; }
+
+        try {
+            com.hollow.game.TreasurySystem tr = new com.hollow.game.TreasurySystem();
+            tr.income("trade", 100, "wool");
+            if(!tr.expense("gift", 90, "envoys") || tr.balance != 10) throw new AssertionError("ledger");
+            if(tr.expense("gift", 500, "castle")) throw new AssertionError("insolvent guard");
+
+            com.hollow.world.SettlementSystem st3 = new com.hollow.world.SettlementSystem();
+            com.hollow.world.SettlementSystem.Settlement a = st3.found("a", "A");
+            com.hollow.world.SettlementSystem.Settlement b = st3.found("b", "B");
+            a.pop = 5; a.food = 2f; b.pop = 2; b.food = 30f;
+            com.hollow.world.MigrationSystem mg = new com.hollow.world.MigrationSystem(st3);
+            mg.tickDay();
+            if(a.pop >= 5 || b.pop <= 2 || mg.realmPopulation() != 7) throw new AssertionError("migration");
+            pass("v8 treasury + migration");
+        } catch(Throwable t){ fail("v8-trea-mig", t); failures++; }
+
+        try {
+            com.hollow.game.JusticeSystem js = new com.hollow.game.JusticeSystem();
+            js.recordCrime("thief", "burglary", 4);
+            js.recordCrime("thief", "assault", 6);
+            if(!js.isWanted("thief") || !js.arrest("thief") || !js.isImprisoned("thief"))
+                throw new AssertionError("justice");
+            js.tickDay(); js.tickDay(); js.tickDay();
+            if(js.isImprisoned("thief")) throw new AssertionError("release");
+
+            com.hollow.world.FestivalSystem fe = new com.hollow.world.FestivalSystem();
+            com.hollow.world.FestivalSystem.Festival f = fe.schedule("Fair", "a", 1, 2, 10);
+            fe.tickDay(); fe.tickDay(); fe.tickDay();
+            if(f.state != com.hollow.world.FestivalSystem.State.ENDED) throw new AssertionError("festival");
+            pass("v8 justice + festival");
+        } catch(Throwable t){ fail("v8-just-fest", t); failures++; }
+
+        try {
+            com.hollow.game.AuctionSystem au = new com.hollow.game.AuctionSystem();
+            com.hollow.game.AuctionSystem.Listing l = au.list("sword", 1, 50, "smith", 1);
+            if(!au.bid(l.id, "hana", 60)) throw new AssertionError("bid");
+            au.tickDay(); au.tickDay();
+            if(l.state != com.hollow.game.AuctionSystem.State.SOLD || au.sellerProceeds("smith") != 57)
+                throw new AssertionError("auction " + au.sellerProceeds("smith"));
+
+            com.hollow.game.ChronicleSystem ch = new com.hollow.game.ChronicleSystem();
+            ch.record("war", "The wall held", 80);
+            String tale = ch.retell(1);
+            if(!tale.contains("The wall held")) throw new AssertionError("chronicle");
+            pass("v8 auction + chronicle");
+        } catch(Throwable t){ fail("v8-auc-chro", t); failures++; }
+
         return failures;
     }
 

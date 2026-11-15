@@ -37,7 +37,6 @@ public final class SkillTreeSystem {
     public final Map<String, Node> nodes = new LinkedHashMap<>();
     public int points = 0;
     public int spentPoints = 0;
-    public int respecCost = 5;                     // gold/points charge for full respec
 
     public Node define(Node n){ nodes.put(n.id, n); return n; }
     public Node node(String id){ return nodes.get(id); }

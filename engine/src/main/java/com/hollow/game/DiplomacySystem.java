@@ -47,21 +47,27 @@ public final class DiplomacySystem {
         return a.compareTo(b) <= 0 ? a + "|" + b : b + "|" + a;
     }
 
+    /** neutral placeholder for invalid queries (self / null factions) — never stored, never drifted */
+    private static final Relation DUMMY = new Relation("__none__");
+
     public Relation relation(String a, String b){
+        if(a == null || b == null || a.equals(b)) return DUMMY;
         String k = keyOf(a, b);
         Relation r = relations.get(k);
         if(r == null){ r = new Relation(k); relations.put(k, r); }
         return r;
     }
 
-    /** shift a relation (symmetric), clamped -100..100 */
+    /** shift a relation (symmetric), clamped -100..100; a faction has no relation with itself */
     public void shift(String a, String b, int delta){
+        if(a == null || b == null || a.equals(b)) return;
         Relation r = relation(a, b);
         r.value = MathX.clamp(r.value + delta, -100, 100);
     }
 
     /** propose a treaty: needs the relation threshold, no war */
     public boolean propose(String a, String b, Treaty t){
+        if(a == null || b == null || a.equals(b)) return false;
         Relation r = relation(a, b);
         if(r.atWar || r.value < threshold(t) || r.treaties.contains(t)) return false;
         r.treaties.add(t);
@@ -70,6 +76,7 @@ public final class DiplomacySystem {
     }
 
     public void declareWar(String a, String b){
+        if(a == null || b == null || a.equals(b)) return;
         Relation r = relation(a, b);
         if(r.atWar) return;
         r.atWar = true;
@@ -83,6 +90,7 @@ public final class DiplomacySystem {
 
     /** sue for peace: relation must be above -80; war ends, cold peace remains */
     public boolean makePeace(String a, String b){
+        if(a == null || b == null || a.equals(b)) return false;
         Relation r = relation(a, b);
         if(!r.atWar || r.value < -80) return false;
         r.atWar = false;

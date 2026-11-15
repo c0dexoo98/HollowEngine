@@ -64,8 +64,9 @@ public final class SettlementSystem {
         if(s.wood < woodCost || s.stone < stoneCost) return false;
         s.wood -= woodCost;
         s.stone -= stoneCost;
+        // reset progress only when nothing is under construction — never restart work in flight
+        if(s.queue.isEmpty()) s.queueProgress = 0;
         s.queue.add(buildingName);
-        s.queueProgress = 0;
         if(listener != null) listener.onSettlementEvent("queued", id, buildingName);
         return true;
     }
