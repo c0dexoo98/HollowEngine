@@ -17,7 +17,7 @@ import java.util.Map;
  */
 public final class CaravanSystem {
 
-    public enum State { TRAVELING, ARRIVED, ROBBED }
+    public enum State { TRAVELING, ARRIVED, ROBBED, LOST }
 
     public static final class Route {
         public final String id;
@@ -78,11 +78,12 @@ public final class CaravanSystem {
         return c;
     }
 
-    /** price an item would fetch at a settlement: scarce stockpile → better price */
+    /** price an item would fetch at a settlement: scarce stockpile → better price.
+     *  Full comfort (50 units) pays 0.2x, an empty market pays the 1.6x premium. */
     public float priceAt(String settlementId, String itemId, int units){
         if(market == null) return units * 2f;
         float stock = market.stockpile(settlementId, itemId);
-        float scarcity = MathX.clamp(1f - stock / 50f, 0.2f, 1.6f);   // rich market 0.2×, starved 1.6×
+        float scarcity = MathX.clamp(1.6f - stock / 50f * 1.4f, 0.2f, 1.6f);
         return units * 2f * scarcity;
     }
 
@@ -92,7 +93,11 @@ public final class CaravanSystem {
         for(Caravan c : caravans.values()){
             if(c.state != State.TRAVELING) continue;
             Route r = routes.get(c.routeId);
-            if(r == null) continue;
+            if(r == null){                             // route withdrawn mid-journey — caravan lost, report it
+                c.state = State.LOST;
+                if(listener != null) listener.onCaravanEvent("vanished", c.id, c.routeId);
+                continue;
+            }
             c.progress += 1f;
             if(c.progress < r.travelDays) continue;
 
@@ -103,9 +108,10 @@ public final class CaravanSystem {
                 if(listener != null) listener.onCaravanEvent("robbed", c.id, r.id);
                 continue;
             }
-            int sale = 0;
+            float saleF = 0f;                          // accumulate in float, truncate once — not per line
             for(Map.Entry<String, Integer> kv : c.cargo.entrySet())
-                sale += priceAt(r.toId, kv.getKey(), kv.getValue());
+                saleF += priceAt(r.toId, kv.getKey(), kv.getValue());
+            int sale = (int)saleF;
             c.profit = sale - c.cargoCost;
             gold += sale;
             if(market != null) market.spend(r.toId, sale);            // destination pays from its treasury

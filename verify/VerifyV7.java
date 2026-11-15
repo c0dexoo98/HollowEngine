@@ -151,11 +151,45 @@ public class VerifyV7 {
         cs3.load(json);
         check("caravan: save/load", cs3.caravan(1) != null && cs3.caravan(1).state == CaravanSystem.State.ARRIVED
               && cs3.gold == cs.gold, "" + cs3.gold);
+
+        // regression: starved market now pays the documented 1.6x premium (old formula was inert at 1.0x)
+        check("caravan: starved pays premium", Math.abs(scarce - 32f) < 0.01f, "" + scarce);
+
+        // regression: multi-line fractional sale truncates once, not per cargo line (old: 20 gold)
+        CaravanSystem cs4 = new CaravanSystem();
+        cs4.market = cs.market;
+        cs4.define(new CaravanSystem.Route("frac", "oak", "iron").travelDays(1f));
+        Map<String, Integer> frac = new LinkedHashMap<>();
+        frac.put("ore", 10);
+        frac.put("stone", 10);
+        stocks.put("iron:ore", 38f);
+        stocks.put("iron:stone", 38f);
+        CaravanSystem.Caravan cf = cs4.send("frac", frac, 1);
+        cs4.tickDay();
+        check("caravan: fractional sale truncated once", cf.state == CaravanSystem.State.ARRIVED
+              && cf.profit == 20 && cs4.gold == 120, "gold=" + cs4.gold + " profit=" + cf.profit);
+
+        // regression: a route withdrawn mid-journey loses the caravan with an event (old: stuck forever)
+        CaravanSystem cs5 = new CaravanSystem();
+        cs5.listener = (type, id, detail) -> events.add(type);
+        cs5.define(new CaravanSystem.Route("tmp", "a", "b").travelDays(2f));
+        CaravanSystem.Caravan cl = cs5.send("tmp", cargo, 1);
+        cs5.routes.remove("tmp");
+        cs5.tickDay();
+        check("caravan: route withdrawn loses caravan", cl.state == CaravanSystem.State.LOST
+              && events.contains("vanished") && cs5.arrivedCount() == 0, "" + cl.state);
+        cs5.tickDay();
+        check("caravan: lost caravan stays lost", cl.state == CaravanSystem.State.LOST, "" + cl.state);
+        String jsonL = cs5.save();
+        CaravanSystem cs6 = new CaravanSystem();
+        cs6.load(jsonL);
+        check("caravan: lost state round-trips", cs6.caravan(cl.id) != null
+              && cs6.caravan(cl.id).state == CaravanSystem.State.LOST, "");
     }
     private static int saleOf(CaravanSystem.Caravan c){
         int units = 0;
         for(Map.Entry<String, Integer> kv : c.cargo.entrySet()) units += kv.getValue();
-        return units * 2;   // stockpile 0 → scarcity 1.0 → price = units × 2
+        return Math.round(units * 2f * 1.6f);   // stockpile 0 → starved premium 1.6x → units x 3.2
     }
 
     // =====================================================================

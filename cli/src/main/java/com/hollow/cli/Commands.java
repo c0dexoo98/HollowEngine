@@ -4392,6 +4392,72 @@ public final class Commands {
             pass("v10 market day + lighthouse");
         } catch(Throwable t){ fail("v10-mktd-lght", t); failures++; }
 
+        // --- v11.0.0 systems: inn / apiary / matchmaker / well / school / orchard / vital / graveyard ---
+        try {
+            com.hollow.game.InnSystem is = new com.hollow.game.InnSystem();
+            if(!is.build("Fox", 4, 0.5f) || !is.checkIn("Fox", 1)) throw new AssertionError("inn setup");
+            is.tickDay();
+            if(is.inn("Fox").income != 5 || is.inn("Fox").occupied != 0) throw new AssertionError("inn night");
+
+            com.hollow.world.ApiarySystem as = new com.hollow.world.ApiarySystem();
+            if(!as.place("oak", 1f)) throw new AssertionError("apiary place");
+            as.tickDay(); as.tickDay(); as.tickDay();
+            if(Math.abs(as.poolOf("oak") - 6f) > 0.001f || Math.abs(as.harvest("oak") - 6f) > 0.001f)
+                throw new AssertionError("apiary honey");
+            pass("v11 inn + apiary");
+        } catch(Throwable t){ fail("v11-inn-api", t); failures++; }
+
+        try {
+            com.hollow.game.MatchmakerSystem ms = new com.hollow.game.MatchmakerSystem();
+            if(ms.propose("", "bob", 0.9f) || ms.propose("ana", "bob", 0.2f)) throw new AssertionError("mm guard");
+            if(!ms.propose("ana", "bob", 0.8f) || ms.coupleCount() != 1) throw new AssertionError("mm wed");
+            if(!ms.divorce("ana") || ms.coupleCount() != 0) throw new AssertionError("mm divorce");
+
+            com.hollow.world.WellSystem ws = new com.hollow.world.WellSystem();
+            if(!ws.dig("iron", 5) || !ws.waterAccess("iron")) throw new AssertionError("well access");
+            ws.well("iron").clean = false;
+            if(ws.waterAccess("iron") || !ws.purify("iron") || !ws.waterAccess("iron"))
+                throw new AssertionError("well purify");
+            pass("v11 matchmaker + well");
+        } catch(Throwable t){ fail("v11-mm-well", t); failures++; }
+
+        try {
+            com.hollow.game.SchoolSystem ss = new com.hollow.game.SchoolSystem();
+            if(!ss.found("oak", "Mira", 2, 2)) throw new AssertionError("school found");
+            if(!ss.enroll("oak", "pip") || !ss.enroll("oak", "wren") || ss.enroll("oak", "cyd"))
+                throw new AssertionError("school enroll");
+            ss.tickDay(); ss.tickDay();
+            if(ss.graduatedCount() != 2 || Math.abs(ss.literacyRate() - 1f) > 0.001f)
+                throw new AssertionError("school graduate");
+
+            com.hollow.world.OrchardSystem os = new com.hollow.world.OrchardSystem();
+            if(!os.plant("oak", 10)) throw new AssertionError("orchard plant");
+            for(int i = 0; i < 7; i++) os.tickDay();
+            if(Math.abs(os.fruitOf("oak") - 7f) > 0.001f || Math.abs(os.harvest("oak") - 7f) > 0.001f)
+                throw new AssertionError("orchard yield");
+            pass("v11 school + orchard");
+        } catch(Throwable t){ fail("v11-sch-orc", t); failures++; }
+
+        try {
+            com.hollow.world.SettlementSystem st6 = new com.hollow.world.SettlementSystem();
+            com.hollow.world.SettlementSystem.Settlement oak = st6.found("oak", "Oak");
+            oak.pop = 100;
+            com.hollow.world.VitalSystem vs = new com.hollow.world.VitalSystem(st6);
+            vs.tickDay();
+            if(oak.pop != 100 || vs.stats("oak").born != 1 || vs.stats("oak").died != 1)
+                throw new AssertionError("vital defaults");
+            vs.birthRate = 0.05f; vs.deathRate = 0f;
+            vs.tickDay();
+            if(oak.pop != 105) throw new AssertionError("vital births");
+
+            com.hollow.game.GraveyardSystem gs = new com.hollow.game.GraveyardSystem();
+            if(!gs.consecrate("oak", 2) || !gs.bury("oak", "tom") || !gs.bury("oak", "marta")
+               || gs.bury("oak", "third")) throw new AssertionError("graveyard plots");
+            for(int i = 0; i < 30; i++) gs.tickDay();
+            if(gs.yard("oak").occupied != 0 || !gs.bury("oak", "newcomer")) throw new AssertionError("graveyard reuse");
+            pass("v11 vital + graveyard");
+        } catch(Throwable t){ fail("v11-vit-grav", t); failures++; }
+
         return failures;
     }
 
