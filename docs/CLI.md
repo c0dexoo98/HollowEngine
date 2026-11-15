@@ -157,13 +157,13 @@ dbg[script=scripts/demo.flow.json step=2 BREAK bps=1 hits=1]
 
 ```
 == build (engine + cli)                      OK  build
-== selftest                                  OK  selftest (213 checks)
+== selftest                                  OK  selftest (217 checks)
 == regression suites                         VerifyMath2 (8) / VerifyInfra (9) / VerifyAudio (8) /
                                              VerifyPhysics (8) / VerifyNet (8) / VerifyNav (10) /
                                              VerifyGameplay (41) / VerifyPlatform (22) /
                                              VerifyAaa (54, v4) / VerifyV5 (78) / VerifyV6 (85) /
                                              VerifyV7 (81, v7) / VerifyV8 (67, v8) /
-                                             VerifyV9 (67, v9) / BenchCore
+                                             VerifyV9 (67, v9) / VerifyV10 (64, v10) / BenchCore
 == demo asserts                              demo-fps (5) / engine-tests (8)
 ```
 

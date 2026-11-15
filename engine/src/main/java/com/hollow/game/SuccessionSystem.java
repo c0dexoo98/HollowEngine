@@ -52,12 +52,12 @@ public final class SuccessionSystem {
         return true;
     }
 
-    /** daily tick: stable rule accumulates legitimacy, weak rule risks uprising */
+    /** daily tick: stable rule accumulates legitimacy, weak rule risks uprising; legitimacy stays in 0..100 */
     public void tickDay(){
         day++;
         if(current == null) return;
         if(current.legitimacy >= uprisingThreshold)
-            current.legitimacy = Math.min(100, current.legitimacy + stabilityDrift);
+            current.legitimacy = Math.max(0, Math.min(100, current.legitimacy + stabilityDrift));
         if(current.legitimacy < uprisingThreshold && listener != null)
             listener.onSuccessionEvent("uprising_risk", current.name, current.legitimacy);
     }

@@ -75,7 +75,11 @@ public final class ExpeditionSystem {
         for(Expedition e : expeditions.values()){
             if(e.resolved) continue;
             Ruin r = ruins.get(e.ruinId);
-            if(r == null){ e.resolved = true; continue; }
+            if(r == null){                             // ruin vanished (content removal) — crew lost, report it
+                e.resolved = true;
+                if(listener != null) listener.onExpeditionEvent("vanished", e.id, e.ruinId);
+                continue;
+            }
             e.progress += 1f;
             if(e.progress < r.journeyDays) continue;
 

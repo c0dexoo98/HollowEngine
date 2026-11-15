@@ -195,6 +195,13 @@ public class VerifyV9 {
         ss2.load(json);
         check("succ: save/load", ss2.hasRuler() && ss2.current.name.equals("Drax")
               && ss2.legitimacy() == 15 && ss2.lineage.size() == ss.lineage.size(), "");
+
+        // regression: legitimacy never drops below zero under heavy negative drift
+        ss.stabilityDrift = -50;
+        ss.current.legitimacy = 30;
+        ss.tickDay();
+        check("succ: legitimacy floors at zero", ss.legitimacy() == 0 && events.contains("uprising_risk"),
+              "" + ss.legitimacy());
     }
 
     // =====================================================================
@@ -225,6 +232,12 @@ public class VerifyV9 {
         check("exp: save/load", es2.ruin("vault") != null && es2.expeditions.get(e.id) != null
               && es2.expeditions.get(e.id).resolved
               && es2.artifactCount("crown of dust") == es.artifactCount("crown of dust"), "");
+
+        // regression: a ruin removed mid-journey resolves the expedition with a vanished event (no silent loss)
+        ExpeditionSystem.Expedition e2 = es.launch("vault", "mori", 5, 3);
+        es.ruins.remove("vault");
+        es.tickDay();
+        check("exp: vanished ruin reported", e2.resolved && events.contains("vanished"), events.toString());
     }
 
     // =====================================================================
@@ -256,7 +269,9 @@ public class VerifyV9 {
         PlagueSystem ps2 = new PlagueSystem(world);
         ps2.outbreak("oak", 10);
         for(int i = 0; i < 16; i++) ps2.tickDay();
-        check("plag: plague burns out by duration", !ps2.active, "" + ps2.day);
+        // regression: burn-out by duration must not leave stale sick counts behind
+        check("plag: plague burns out by duration", !ps2.active && ps2.sickOf("oak") == 0
+              && ps2.totalSick() == 0, "" + ps2.totalSick());
 
         String json = ps.save();
         PlagueSystem ps3 = new PlagueSystem(world);

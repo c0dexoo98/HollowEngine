@@ -102,8 +102,10 @@ public final class PlagueSystem {
         for(String gone : deadOutbreaks) sick.remove(gone);
 
         if(sick.isEmpty() || day - outbreakDay >= durationDays){
+            int remaining = totalSick();
             active = false;
-            if(listener != null) listener.onPlagueEvent("ended", "", totalSick());
+            sick.clear();                              // the epidemic is over — no stale sick counts
+            if(listener != null) listener.onPlagueEvent("ended", "", remaining);
         }
     }
 

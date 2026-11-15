@@ -4323,6 +4323,75 @@ public final class Commands {
             pass("v9 plague + granary");
         } catch(Throwable t){ fail("v9-plag-gran", t); failures++; }
 
+        // --- v10.0.0 systems: wonder / herald / courier / wager / debt / spy / market day / lighthouse ---
+        try {
+            com.hollow.game.WonderSystem ws = new com.hollow.game.WonderSystem();
+            ws.define(new com.hollow.game.WonderSystem.Wonder("colossus", "Colossus", com.hollow.game.WonderSystem.Kind.MORALE, 0.2f, 2));
+            if(!ws.start("colossus") || ws.start("colossus")) throw new AssertionError("wonder start");
+            ws.tickDay(); ws.tickDay();
+            if(!ws.wonder("colossus").done || Math.abs(ws.realmBonus(com.hollow.game.WonderSystem.Kind.MORALE) - 0.2f) > 0.001f)
+                throw new AssertionError("wonder bonus");
+
+            com.hollow.game.HeraldSystem hs = new com.hollow.game.HeraldSystem();
+            com.hollow.game.HeraldSystem.Edict ed = hs.proclaim("Tax Holiday", "tax", 0.2f, 2);
+            hs.tickDay(); hs.tickDay();
+            if(hs.inForce(ed.id) || Math.abs(hs.effectOf("tax")) > 0.001f) throw new AssertionError("edict lapse");
+            pass("v10 wonder + herald");
+        } catch(Throwable t){ fail("v10-wond-hera", t); failures++; }
+
+        try {
+            com.hollow.game.CourierSystem cs = new com.hollow.game.CourierSystem();
+            com.hollow.game.CourierSystem.Letter ok = cs.send("oak", "iron", "hello", 1, 0f);
+            com.hollow.game.CourierSystem.Letter bad = cs.send("oak", "iron", "secret", 1, 1f);
+            cs.tickDay();
+            if(ok == null || bad == null || !ok.delivered || !bad.lost || !bad.delivered
+               || cs.mailboxOf("iron").size() != 1) throw new AssertionError("courier");
+
+            com.hollow.game.WagerSystem wg = new com.hollow.game.WagerSystem();
+            com.hollow.game.WagerSystem.Bet b = wg.place("hana", 1, "Aldric", 100, 2f);
+            wg.settle(1, "Aldric");
+            if(b == null || b.payout != 200 || wg.profitOf("hana") != 100 || wg.houseNet != -100)
+                throw new AssertionError("wager " + wg.houseNet);
+            pass("v10 courier + wager");
+        } catch(Throwable t){ fail("v10-cour-wage", t); failures++; }
+
+        try {
+            com.hollow.game.DebtSystem ds = new com.hollow.game.DebtSystem();
+            com.hollow.game.DebtSystem.Loan loan = ds.borrow("bank", 100, 10, 1);
+            ds.tickDay();
+            if(loan.remaining != 110) throw new AssertionError("debt interest");
+            ds.tickDay();                                  // day 2 > dueDay 1 (interest accrues that day too)
+            if(!loan.defaulted || ds.defaultedCount() != 1) throw new AssertionError("debt default");
+            if(ds.repay(loan.id, 120) != 120 || ds.outstanding() != 0) throw new AssertionError("debt repay");
+
+            com.hollow.game.SpyNetworkSystem ss = new com.hollow.game.SpyNetworkSystem();
+            ss.recruit("kas", "oak", 1f);
+            if(!ss.uncoverPlot("fraud", "oak") || ss.informants.get("kas").uncovered != 1)
+                throw new AssertionError("spy uncover");
+            ss.burn("kas");
+            if(ss.intel("oak") != 0f || ss.liveCount() != 0) throw new AssertionError("spy burn");
+            pass("v10 debt + spy");
+        } catch(Throwable t){ fail("v10-debt-spy", t); failures++; }
+
+        try {
+            com.hollow.world.SettlementSystem st5 = new com.hollow.world.SettlementSystem();
+            com.hollow.world.SettlementSystem.Settlement oak = st5.found("oak", "Oak");
+            com.hollow.world.MarketDaySystem md = new com.hollow.world.MarketDaySystem(st5);
+            md.register("oak", 3);
+            if(!md.isMarketDay("oak") || md.priceBoost("oak") != 1.25f || md.crowdOf("oak") != oak.pop / 2)
+                throw new AssertionError("market day");
+            md.tickDay();
+            if(md.isMarketDay("oak") || md.crowdOf("oak") != 0) throw new AssertionError("market quiet");
+
+            com.hollow.world.LighthouseSystem ls = new com.hollow.world.LighthouseSystem();
+            if(ls.build("") || !ls.build("portsmouth")) throw new AssertionError("lighthouse build");
+            ls.upgrade("portsmouth"); ls.upgrade("portsmouth");
+            if(ls.upkeepOf("portsmouth") != 15 || ls.upgrade("portsmouth") != -1) throw new AssertionError("lighthouse level");
+            boolean w1 = ls.shipPasses("portsmouth", 99L);
+            if(w1 != ls.shipPasses("portsmouth", 99L)) throw new AssertionError("lighthouse roll");
+            pass("v10 market day + lighthouse");
+        } catch(Throwable t){ fail("v10-mktd-lght", t); failures++; }
+
         return failures;
     }
 
