@@ -144,6 +144,11 @@ public class VerifyV8 {
         tr3.load(json);
         check("trea: save/load", tr3.balance == tr.balance && tr3.ledgerSize() == tr.ledgerSize()
               && tr3.dailyWages == 10, "" + tr3.balance);
+        // regression: ledger order must survive save/load (recent() yields newest first)
+        check("trea: ledger order survives load", tr3.recent(1).size() == 1
+              && tr3.recent(1).get(0).type.equals(tr.recent(1).get(0).type)
+              && tr3.recent(3).get(0).amount == tr.recent(3).get(0).amount,
+              tr3.recent(3).toString());
     }
 
     // =====================================================================
@@ -206,6 +211,10 @@ public class VerifyV8 {
         js.recordCrime("bandit", "toll", 6);
         check("just: fine reduces wanted", !js.payFine("bandit", 4) && js.wantedLevel("bandit") == 2, "");
         check("just: full fine clears", js.payFine("bandit", 5) && js.wantedLevel("bandit") == 0, "");
+
+        // regression: a citizen with no record has nothing to pay — refused, no zero entry created
+        check("just: fine refused without record", !js.payFine("clean", 5)
+              && !js.wanted.containsKey("clean"), "" + js.wantedLevel("clean"));
 
         js.recordCrime("poacher", "snare", 5);
         for(int i = 0; i < 3; i++) js.tickDay();            // decay 1/day while free

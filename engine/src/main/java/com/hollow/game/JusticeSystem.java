@@ -62,10 +62,11 @@ public final class JusticeSystem {
         return true;
     }
 
-    /** pay a fine to reduce wanted level; returns true if fully cleared */
+    /** pay a fine to reduce wanted level; refused with no criminal record; returns true if fully cleared */
     public boolean payFine(String criminal, int amount){
         if(amount <= 0 || sentences.containsKey(criminal)) return false;
         int level = wanted.getOrDefault(criminal, 0);
+        if(level == 0) return false;                 // no record — nothing to pay off
         int paid = Math.min(level, amount);
         wanted.put(criminal, level - paid);
         if(listener != null) listener.onJusticeEvent("fine", criminal, paid);

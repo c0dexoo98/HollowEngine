@@ -4258,6 +4258,71 @@ public final class Commands {
             pass("v8 auction + chronicle");
         } catch(Throwable t){ fail("v8-auc-chro", t); failures++; }
 
+        // --- v9.0.0 systems: rumor / road / tournament / guild / succession / expedition / plague / granary ---
+        try {
+            com.hollow.game.RumorSystem rs = new com.hollow.game.RumorSystem();
+            com.hollow.game.RumorSystem.Rumor r = rs.spread("the mine collapsed", 0.8f, "miner");
+            float end = rs.hopChain("miner", r.id, 3);
+            if(r == null || rs.truthOf("miner", r.id) != 0.8f || end < 0f || end > 0.8f)
+                throw new AssertionError("rumor " + end);
+
+            com.hollow.world.RoadSystem rd = new com.hollow.world.RoadSystem();
+            if(!rd.build("oak", "iron") || rd.upgrade("oak", "iron") != 2 || rd.travelDays(10, "oak", "iron") != 7)
+                throw new AssertionError("road");
+            pass("v9 rumor + road");
+        } catch(Throwable t){ fail("v9-rumor-road", t); failures++; }
+
+        try {
+            com.hollow.game.TournamentSystem ts = new com.hollow.game.TournamentSystem();
+            ts.define(new com.hollow.game.TournamentSystem.Knight("Aldric", 0.9f));
+            ts.define(new com.hollow.game.TournamentSystem.Knight("Bors", 0.7f));
+            com.hollow.game.TournamentSystem.Tournament t = ts.schedule("Cup", 100, 40);
+            ts.enroll(t.id, "Aldric"); ts.enroll(t.id, "Bors");
+            String champ = ts.run(t.id, 7L);
+            if(champ.isEmpty() || ts.titlesOf(champ) != 1 || !ts.run(t.id, 7L).isEmpty())
+                throw new AssertionError("tournament " + champ);
+
+            com.hollow.world.GuildSystem gs = new com.hollow.world.GuildSystem();
+            com.hollow.world.GuildSystem.Guild g = gs.found("Scale", com.hollow.world.GuildSystem.Kind.MERCHANT, 50);
+            gs.join(g.id, "hana"); gs.join(g.id, "mori");
+            gs.tickDay();
+            if(g.disbanded || g.coffers != 50 + 4 - 5) throw new AssertionError("guild " + g.coffers);
+            pass("v9 tournament + guild");
+        } catch(Throwable t){ fail("v9-tour-gild", t); failures++; }
+
+        try {
+            com.hollow.game.SuccessionSystem ss = new com.hollow.game.SuccessionSystem();
+            ss.crown("Aldric"); ss.nameHeir("Bors");
+            if(!ss.depose() || !ss.current.name.equals("Bors") || ss.legitimacy() != 65)
+                throw new AssertionError("succession");
+
+            com.hollow.game.ExpeditionSystem es = new com.hollow.game.ExpeditionSystem();
+            final boolean[] casualty = { false };
+            es.listener = (type, id, detail) -> { if(type.equals("casualties")) casualty[0] = true; };
+            es.define(new com.hollow.game.ExpeditionSystem.Ruin("vault", "Vault", "crown", 500).danger(0f).journey(1));
+            com.hollow.game.ExpeditionSystem.Expedition e = es.launch("vault", "hana", 20, 2);
+            es.tickDay();
+            if(e == null || !e.resolved || (es.artifactCount("crown") != 1 && !casualty[0]))
+                throw new AssertionError("expedition");
+            pass("v9 succession + expedition");
+        } catch(Throwable t){ fail("v9-succ-exp", t); failures++; }
+
+        try {
+            com.hollow.world.SettlementSystem st4 = new com.hollow.world.SettlementSystem();
+            com.hollow.world.SettlementSystem.Settlement oak = st4.found("oak", "Oak");
+            com.hollow.world.PlagueSystem ps = new com.hollow.world.PlagueSystem(st4);
+            oak.pop = 100;
+            ps.outbreak("oak", 50);
+            ps.tickDay();
+            if(oak.pop != 95 || ps.sickOf("oak") != 58) throw new AssertionError("plague " + oak.pop);
+
+            com.hollow.world.GranarySystem gr = new com.hollow.world.GranarySystem(st4);
+            oak.buildings.add("granary1");
+            oak.food = 100f;
+            if(gr.deposit("oak", 30) != 30f || Math.abs(oak.food - 70f) > 0.01f) throw new AssertionError("granary");
+            pass("v9 plague + granary");
+        } catch(Throwable t){ fail("v9-plag-gran", t); failures++; }
+
         return failures;
     }
 

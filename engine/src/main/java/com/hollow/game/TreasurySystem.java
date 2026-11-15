@@ -126,9 +126,11 @@ public final class TreasurySystem {
             for(Object o : es){
                 java.util.Map<String,Object> m = Json.obj(o);
                 if(m == null) continue;
-                push(new Entry((int)Json.num(m.get("d"), 0), Json.str(m.get("t"), "?"),
+                // saved newest-first; append (not addFirst) keeps that order so recent() still yields newest first
+                ledger.addLast(new Entry((int)Json.num(m.get("d"), 0), Json.str(m.get("t"), "?"),
                     (int)Json.num(m.get("a"), 0), Json.str(m.get("n"), "")));
             }
+            while(ledger.size() > ledgerLimit) ledger.removeLast();
         } catch(Exception ignored){ }
     }
 }

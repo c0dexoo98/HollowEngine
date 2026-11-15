@@ -54,10 +54,12 @@ public final class AuctionSystem {
 
     public Listing listing(int id){ return listings.get(id); }
 
-    /** place a bid: first bid must meet the reserve, later bids must beat the top by the increment */
+    /** place a bid: first bid must meet the reserve, later bids must beat the top by the increment;
+     *  bids on a listing past its expiry day are refused (tickDay closes it) */
     public boolean bid(int listingId, String bidder, int amount){
         Listing l = listings.get(listingId);
-        if(l == null || l.state != State.OPEN || bidder == null || bidder.equals(l.seller)) return false;
+        if(l == null || l.state != State.OPEN || day > l.expiresDay) return false;
+        if(bidder == null || bidder.equals(l.seller)) return false;
         if(amount < l.reserve) return false;
         if(!l.topBidder.isEmpty() && amount < l.topBid + minIncrement) return false;
         l.topBidder = bidder;
