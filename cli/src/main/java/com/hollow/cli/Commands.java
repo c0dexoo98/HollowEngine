@@ -3996,6 +3996,65 @@ public final class Commands {
             pass("aaa wave director + replay");
         } catch(Throwable t){ fail("aaa-waves-replay", t); failures++; }
 
+        // --- v5.0.0 systems: stealth / progression / faction / loot / economy / seasons / music / markers ---
+        try {
+            com.hollow.ai.StealthSystem st = new com.hollow.ai.StealthSystem();
+            com.hollow.ai.StealthSystem.Observer g = st.addObserver("guard");
+            g.pos.set(0, 0, 0); g.facing.set(0, 0, -1);
+            com.hollow.ai.StealthSystem.Hidden hv = st.addHidden("spy");
+            hv.pos.set(0, 0, -6); hv.lightLevel = 1f;
+            for(int i = 0; i < 180 && st.stateFor("spy") != com.hollow.ai.StealthSystem.State.DETECTED; i++) st.update(1f / 60f);
+            if(st.stateFor("spy") != com.hollow.ai.StealthSystem.State.DETECTED) throw new AssertionError("stealth " + st.stateFor("spy"));
+            pass("v5 stealth detection");
+        } catch(Throwable t){ fail("v5-stealth", t); failures++; }
+
+        try {
+            com.hollow.gameplay.ProgressionSystem pr = new com.hollow.gameplay.ProgressionSystem();
+            pr.define(new com.hollow.gameplay.ProgressionSystem.Skill("atk").raises("damage", 4f));
+            pr.sink = (attr, delta) -> { };
+            pr.addXp(pr.xpForLevel(1) + 5);
+            if(pr.level != 2 || pr.skillPoints != 1) throw new AssertionError("xp " + pr.level + "/" + pr.skillPoints);
+            if(!pr.rankUp("atk")) throw new AssertionError("rank");
+
+            com.hollow.gameplay.LootSystem ls = new com.hollow.gameplay.LootSystem();
+            ls.define(new com.hollow.gameplay.LootSystem.Table("t").add(new com.hollow.gameplay.LootSystem.Entry("gem", 1f).rare(com.hollow.gameplay.LootSystem.Rarity.EPIC)));
+            com.hollow.gameplay.LootSystem.Roll roll = ls.roll("t", 7L);
+            if(roll == null || !roll.itemId.equals("gem")) throw new AssertionError("loot");
+            pass("v5 progression + loot");
+        } catch(Throwable t){ fail("v5-prog-loot", t); failures++; }
+
+        try {
+            com.hollow.gameplay.FactionSystem fs = new com.hollow.gameplay.FactionSystem();
+            fs.define("a", "Alpha"); fs.define("b", "Bravo");
+            fs.declareWar("a", "b");
+            if(!fs.isAtWar("a", "b")) throw new AssertionError("war");
+            com.hollow.gameplay.EconomySystem eco = new com.hollow.gameplay.EconomySystem();
+            com.hollow.gameplay.EconomySystem.Vendor v = new com.hollow.gameplay.EconomySystem.Vendor("v", "Shop");
+            v.stock.add(new com.hollow.gameplay.EconomySystem.StockItem("bread", 10, 2));
+            eco.define(v);
+            if(eco.buyPrice(v, "bread") != 13) throw new AssertionError("price " + eco.buyPrice(v, "bread")); // 12.5 → 13
+
+            com.hollow.audio.MusicDirector md = new com.hollow.audio.MusicDirector();
+            md.define(new com.hollow.audio.MusicDirector.State("calm").track("c1").dwellSec(0.2f));
+            md.define(new com.hollow.audio.MusicDirector.State("fight").track("f1").dwellSec(0.2f));
+            md.request("calm", com.hollow.audio.MusicDirector.Request.IMMEDIATE);
+            md.setThreat(1f);
+            md.autoCombatState("calm", "fight", 0.6f);
+            for(int i = 0; i < 200 && !md.current.equals("fight"); i++) md.update(1f / 60f);
+            if(!md.current.equals("fight")) throw new AssertionError("music " + md.current);
+
+            com.hollow.world.SeasonsSystem se = new com.hollow.world.SeasonsSystem(2, 8f);
+            // one season = 2 days = 2 * (8*60/8) = 120 s; run 130 s to cross the boundary
+            for(int i = 0; i < 130; i++) se.update(1f);
+            if(se.season != com.hollow.world.SeasonsSystem.Season.SUMMER) throw new AssertionError("season " + se.season);
+
+            com.hollow.ui.MapMarkerSystem mm = new com.hollow.ui.MapMarkerSystem();
+            mm.add(new com.hollow.ui.MapMarkerSystem.Marker("home", "Camp").at(0, 0, 50));
+            com.hollow.ui.MapMarkerSystem.Probe p2 = mm.nearest(new com.hollow.core.Vec3(), com.hollow.ui.MapMarkerSystem.Category.CUSTOM);
+            if(p2 == null || p2.distance != 50f) throw new AssertionError("marker");
+            pass("v5 faction/economy/music/seasons/markers");
+        } catch(Throwable t){ fail("v5-world", t); failures++; }
+
         return failures;
     }
 
