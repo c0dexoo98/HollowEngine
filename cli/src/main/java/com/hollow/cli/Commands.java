@@ -1603,12 +1603,156 @@ public final class Commands {
         failures += batch4Tests();
         // ================= v2.6.0 Batch 5 (NET-rollback + NAV-mesh) =================
         failures += batch5Tests();
+        // ================= v3.0.0 Batch 6 (gameplay + platform) =================
+        failures += batch6Tests();
         System.out.println();
         if(failures > 0){
             System.out.println("RESULT: " + failures + " self test(s) FAILED");
             System.exit(1);
         }
         System.out.println("RESULT: all self tests passed");
+    }
+
+    /** v3.0.0 regression block: gameplay systems + platform */
+    static int batch6Tests(){
+        int failures = 0;
+        // --- Inventory: stacks, weight limit, crafting ---
+        try {
+            com.hollow.gameplay.Inventory inv = new com.hollow.gameplay.Inventory();
+            inv.add("medkit", 5, 0.5f, true, null);
+            inv.add("wood", 10, 0.5f, true, null);
+            inv.recipes.add(new com.hollow.gameplay.Inventory.Recipe(
+                "arrow", 10, new String[]{"wood"}, new int[]{2}));
+            if(!inv.craft(0, 0.05f, true, null)) throw new AssertionError("craft failed");
+            if(inv.count("wood") != 8 || inv.count("arrow") != 10)
+                throw new AssertionError("wood=" + inv.count("wood") + " arrow=" + inv.count("arrow"));
+            int over = inv.add("rock", 100000, 1f, true, null);
+            if(inv.weight() > inv.maxWeight + 1e-4f || over >= 100000)
+                throw new AssertionError("weight limit bypass w=" + inv.weight());
+            pass("GAME inventory stack/craft/weight");
+        } catch(Throwable t){ fail("game-inventory", t); failures++; }
+        // --- Combatant: zones, resist, death, DOT ---
+        try {
+            com.hollow.gameplay.Combatant c = new com.hollow.gameplay.Combatant(100f);
+            c.damage(new com.hollow.gameplay.Combatant.DamageInfo(10f, "physical", "head"));
+            if(Math.abs(c.hp - 80f) > 1e-3f) throw new AssertionError("head 2x failed hp=" + c.hp);
+            c.resistances.put("fire", 0.5f);
+            c.damage(new com.hollow.gameplay.Combatant.DamageInfo(40f, "fire", "torso"));
+            if(Math.abs(c.hp - 60f) > 1e-3f) throw new AssertionError("resist failed hp=" + c.hp);
+            c.applyStatus("poison", 1f, 0.5f, 10f, 0f);
+            for(int i = 0; i < 20; i++) c.updateStatuses(0.1f);
+            if(Math.abs(c.hp - 40f) > 1e-3f || c.hasStatus("poison"))
+                throw new AssertionError("poison hp=" + c.hp);
+            pass("GAME combat zones/resist/DOT");
+        } catch(Throwable t){ fail("game-combat", t); failures++; }
+        // --- Weapon: auto drain + auto-reload from inventory ---
+        try {
+            com.hollow.gameplay.Weapon w = new com.hollow.gameplay.Weapon();
+            w.magSize = 3; w.magAmmo = 3; w.fireRate = 600f;
+            int fired = 0;
+            for(int i = 0; i < 10; i++){
+                if(w.tryFire(true, null).fired) fired++;
+                w.update(1f / 60f);
+            }
+            if(fired != 3 || !w.tryFire(true, null).empty) throw new AssertionError("drain fired=" + fired);
+            com.hollow.gameplay.Inventory src = new com.hollow.gameplay.Inventory();
+            src.add("ammo_rifle", 2, 0.01f, true, null);
+            w.ammoId = "ammo_rifle"; w.reloadTime = 0.5f;
+            w.tryFire(true, src);
+            for(int i = 0; i < 40; i++) w.update(1f / 60f);
+            if(w.magAmmo != 2 || src.count("ammo_rifle") != 0)
+                throw new AssertionError("reload mag=" + w.magAmmo);
+            pass("GAME weapon drain/auto-reload");
+        } catch(Throwable t){ fail("game-weapon", t); failures++; }
+        // --- Dialogue: conditions + effects + visited ---
+        try {
+            com.hollow.gameplay.Dialogue d = new com.hollow.gameplay.Dialogue();
+            d.add(new com.hollow.gameplay.Dialogue.Node("s", "NPC", "hi")
+                .choice("a", "b", dd -> Boolean.TRUE.equals(dd.getVar("ok")), null)
+                .choice("c", null));
+            d.add(new com.hollow.gameplay.Dialogue.Node("b", "NPC", "secret"));
+            d.begin();
+            if(d.visibleChoices().size() != 1) throw new AssertionError("gate failed");
+            d.setVar("ok", Boolean.TRUE);
+            if(d.visibleChoices().size() != 2) throw new AssertionError("ungate failed");
+            if(d.pick(0) == null || !d.visited("b")) throw new AssertionError("nav failed");
+            pass("GAME dialogue gate/navigate");
+        } catch(Throwable t){ fail("game-dialog", t); failures++; }
+        // --- Quest: progress + chain + zero-objective guard ---
+        try {
+            com.hollow.gameplay.QuestSystem qs = new com.hollow.gameplay.QuestSystem();
+            final int[] kills = { 0 };
+            qs.add(new com.hollow.gameplay.QuestSystem.Quest("q1", "Q1")
+                .objective("k", "kill", 2, (q, o) -> kills[0]));
+            qs.quests.get("q1").nextQuestId = "q2";
+            qs.add(new com.hollow.gameplay.QuestSystem.Quest("q2", "Q2"));   // no objectives
+            qs.start("q1");
+            kills[0] = 2;
+            qs.update();
+            if(!"completed".equals(qs.quest("q1").state)) throw new AssertionError("not completed");
+            if(!"active".equals(qs.quest("q2").state)) throw new AssertionError("chain broken (auto-complete of empty quest?) state=" + qs.quest("q2").state);
+            pass("GAME quest progress/chain/empty-guard");
+        } catch(Throwable t){ fail("game-quest", t); failures++; }
+        // --- Tutorial: probes + timeout ---
+        try {
+            com.hollow.gameplay.Tutorial tut = new com.hollow.gameplay.Tutorial();
+            boolean[] done = { false };
+            tut.step("a", "do a", () -> done[0]);
+            tut.begin();
+            tut.update(0.016f);
+            if(tut.finished) throw new AssertionError("finished early");
+            done[0] = true;
+            tut.update(0.016f);
+            if(!tut.finished || tut.progress() != 1f) throw new AssertionError("not finished");
+            pass("GAME tutorial probe/finish");
+        } catch(Throwable t){ fail("game-tutorial", t); failures++; }
+        // --- Plugin: register + quarantine ---
+        try {
+            com.hollow.platform.PluginHost host = new com.hollow.platform.PluginHost(
+                new com.hollow.platform.PluginHost.Context(){
+                    public com.hollow.core.Console console(){ return new com.hollow.core.Console(); }
+                    public com.hollow.script.EventBus events(){ return new com.hollow.script.EventBus(); }
+                    public java.util.Map<String,Object> state(){ return new java.util.HashMap<>(); }
+                });
+            final boolean[] crash = { false };
+            com.hollow.platform.PluginHost.HollowPlugin bad = new com.hollow.platform.PluginHost.HollowPlugin(){
+                public String id(){ return "bad"; }
+                public void onUpdate(com.hollow.platform.PluginHost.Context c, float dt){
+                    if(crash[0]) throw new RuntimeException("x");
+                }
+            };
+            host.register(bad);
+            host.update(0.016f);
+            crash[0] = true;
+            host.update(0.016f);
+            if(host.loaded.get("bad").enabled) throw new AssertionError("not quarantined");
+            pass("PLAT plugin quarantine");
+        } catch(Throwable t){ fail("plat-plugin", t); failures++; }
+        // --- Governor: drop on misses, cap on thermal ---
+        try {
+            com.hollow.platform.MobileGovernor gov = new com.hollow.platform.MobileGovernor();
+            gov.level = com.hollow.platform.MobileGovernor.Level.ULTRA;
+            boolean dropped = false;
+            for(int i = 0; i < 130; i++) dropped = gov.report(30f, 80f, 0.1f) || dropped;
+            if(!dropped) throw new AssertionError("no drop");
+            gov.report(10f, 60f, 0.9f);
+            if(gov.fpsCap != 30) throw new AssertionError("no thermal cap");
+            pass("PLAT governor ladder");
+        } catch(Throwable t){ fail("plat-governor", t); failures++; }
+        // --- PlanarReflection math ---
+        try {
+            com.hollow.render.PlanarReflection pr = new com.hollow.render.PlanarReflection();
+            pr.setPlane(new com.hollow.core.Vec3(0, 0, 0), new com.hollow.core.Vec3(0, 1, 0));
+            com.hollow.core.Vec3 m = pr.mirrorEye(new com.hollow.core.Vec3(2, 5, 3));
+            if(Math.abs(m.y + 5f) > 1e-4f) throw new AssertionError("mirror " + m);
+            com.hollow.core.Mat4 mm = com.hollow.render.PlanarReflection.mirrorMatrix(
+                new com.hollow.core.Vec3(0, 0, 0), new com.hollow.core.Vec3(0, 1, 0));
+            com.hollow.core.Vec3 p = new com.hollow.core.Vec3(1, 2, 3);
+            com.hollow.core.Vec3 back = mm.transformPoint(mm.transformPoint(p));
+            if(back.dist(p) > 1e-3f) throw new AssertionError("involution " + back);
+            pass("PLAT planar reflection math");
+        } catch(Throwable t){ fail("plat-reflect", t); failures++; }
+        return failures;
     }
 
     /** v2.6.0 regression block: netcode rollback + navmesh */

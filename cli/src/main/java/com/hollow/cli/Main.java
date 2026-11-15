@@ -36,6 +36,9 @@ public final class Main {
                 case "eqs": Commands.eqsTest(args); break;
                 case "pose": PoseCmd.run(args); break;
                 case "selftest": Commands.selfTest(); break;
+                // v3.0 — scene editor + packaging
+                case "edit": System.exit(SceneEdit.run(args)); break;
+                case "pack": System.exit(PackCmd.run(args)); break;
                 // v2.1 — interactive console (Batch 1)
                 case "shell": case "repl": System.exit(Shell.run(args)); break;
                 // v2.5 — EXT batch
