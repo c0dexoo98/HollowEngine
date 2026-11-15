@@ -4055,6 +4055,74 @@ public final class Commands {
             pass("v5 faction/economy/music/seasons/markers");
         } catch(Throwable t){ fail("v5-world", t); failures++; }
 
+        // --- v6.0.0 systems: survival / farming / building / squad / achievements / dda / eco / journal ---
+        try {
+            com.hollow.gameplay.SurvivalSystem sv = new com.hollow.gameplay.SurvivalSystem();
+            final String[] got = {""};
+            sv.listener = (type, stat, val) -> got[0] = type;
+            sv.hunger = 10f;
+            sv.update(1f);
+            if(sv.currentEffect() != com.hollow.gameplay.SurvivalSystem.Effect.STARVING || !"effect".equals(got[0]))
+                throw new AssertionError("survival " + sv.currentEffect() + "/" + got[0]);
+            if(sv.health >= 100f) throw new AssertionError("survival hp");
+
+            com.hollow.world.FarmingSystem fs2 = new com.hollow.world.FarmingSystem(2);
+            fs2.define(new com.hollow.world.FarmingSystem.CropType("wheat", "Wheat", 2, com.hollow.world.SeasonsSystem.Season.SPRING));
+            fs2.plant(0, "wheat");
+            fs2.water(0);
+            fs2.tickDay();                                  // watered + in-season: 1.5 crop-days
+            fs2.water(0);
+            fs2.tickDay();                                  // 3.0 >= 2 → ripe
+            int q = fs2.harvest(0);
+            if(q < 1 || q > 4) throw new AssertionError("farm yield " + q);
+            pass("v6 survival + farming");
+        } catch(Throwable t){ fail("v6-survival-farm", t); failures++; }
+
+        try {
+            com.hollow.ai.SquadCommander sc2 = new com.hollow.ai.SquadCommander();
+            sc2.define("sq");
+            sc2.recruit("sq", "a"); sc2.recruit("sq", "b");
+            sc2.order("sq", com.hollow.ai.SquadCommander.Order.HOLD, new com.hollow.core.Vec3(0, 0, 0));
+            for(int i = 0; i < 30; i++) sc2.update(1f);
+            if(sc2.formationQuality("sq") != 1f) throw new AssertionError("squad " + sc2.formationQuality("sq"));
+
+            com.hollow.game.AchievementSystem ach = new com.hollow.game.AchievementSystem();
+            ach.define(new com.hollow.game.AchievementSystem.Achievement("first_kill", "kills", 1).worth(10));
+            if(!ach.record("kills", 1) || ach.points != 10) throw new AssertionError("ach");
+            if(ach.record("kills", 5) || ach.points != 10) throw new AssertionError("ach double");
+
+            com.hollow.game.DifficultyDirector dd2 = new com.hollow.game.DifficultyDirector();
+            dd2.onDeath(); dd2.update(30f);
+            if(dd2.difficulty >= 0.5f) throw new AssertionError("dda " + dd2.difficulty);
+
+            com.hollow.game.JournalSystem js = new com.hollow.game.JournalSystem();
+            js.define(new com.hollow.game.JournalSystem.Entry("gob", com.hollow.game.JournalSystem.Category.BESTIARY, "Goblin"));
+            if(!js.discover("gob") || js.discover("gob") != true) throw new AssertionError("journal");
+            pass("v6 squad/achievements/dda/journal");
+        } catch(Throwable t){ fail("v6-squad-ach-dda-journal", t); failures++; }
+
+        try {
+            com.hollow.world.EcosystemSystem eco = new com.hollow.world.EcosystemSystem();
+            com.hollow.world.EcosystemSystem.Species g2 = eco.define(new com.hollow.world.EcosystemSystem.Species("grass", "Grass", com.hollow.world.EcosystemSystem.Role.PLANT));
+            g2.capacity = 50f; g2.pop = 10f; g2.growthRate = 0.5f;
+            eco.tickDay();
+            if(eco.species("grass").pop <= 10f) throw new AssertionError("eco growth " + eco.species("grass").pop);
+
+            com.hollow.game.BaseBuildingSystem bb = new com.hollow.game.BaseBuildingSystem();
+            final java.util.Map<String, Integer> wallet2 = new java.util.LinkedHashMap<>();
+            wallet2.put("wood", 5);
+            bb.items = new com.hollow.game.BaseBuildingSystem.ItemSink(){
+                public boolean has(java.util.Map<String, Integer> m){ return m.getOrDefault("wood", 0) <= wallet2.getOrDefault("wood", 0); }
+                public void consume(java.util.Map<String, Integer> m){ wallet2.put("wood", wallet2.get("wood") - m.getOrDefault("wood", 0)); }
+                public void refund(java.util.Map<String, Integer> m){ wallet2.put("wood", wallet2.get("wood") + m.getOrDefault("wood", 0)); }
+            };
+            bb.define(new com.hollow.game.BaseBuildingSystem.Blueprint("wall", "Wall").needs("wood", 2));
+            int sid = bb.place("wall", 3, 3, 0);
+            if(sid < 0 || wallet2.get("wood") != 3) throw new AssertionError("build " + sid + "/" + wallet2);
+            if(bb.place("wall", 3, 3, 0) != -1) throw new AssertionError("build overlap");
+            pass("v6 ecosystem + building");
+        } catch(Throwable t){ fail("v6-eco-build", t); failures++; }
+
         return failures;
     }
 

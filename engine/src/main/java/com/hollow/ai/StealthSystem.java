@@ -103,12 +103,11 @@ public final class StealthSystem {
 
     private void confirm(Observer o, Observer.Detecting det){
         Hidden h = hiddenActor(det.target);
+        // fire only on the transition into DETECTED — never spam while sight holds
         if(h != null && h.state != State.DETECTED){
             h.state = State.DETECTED;
             h.lastDetectedAt = clock;
             if(listener != null) listener.onStealthEvent("detected", o.name, det.target, det.meter);
-        } else if(listener != null){
-            listener.onStealthEvent("detected", o.name, det.target, det.meter);
         }
         det.meter = confirmThreshold;
     }

@@ -73,9 +73,10 @@ public final class MusicDirector {
         return t;
     }
 
-    /** request a music state */
+    /** request a music state; a changed request restarts the dwell clock */
     public void request(String name, Request mode){
         if(states.get(name) == null || name.equals(current)) return;
+        if(!name.equals(requested)) dwellTimer = 0f;   // fresh request = fresh wait
         requested = name;
         if(mode == Request.IMMEDIATE || current.isEmpty()){
             beginSwitch();

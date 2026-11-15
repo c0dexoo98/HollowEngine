@@ -77,6 +77,12 @@ public class VerifyV5 {
         check("stealth: confirms detection", s.stateFor("thief") == StealthSystem.State.DETECTED, "" + s.stateFor("thief"));
         check("stealth: detection event fired", events.contains("detected"), events.toString());
 
+        // regression: sight still held for 1 s after detection — must NOT re-fire the event
+        long beforeSpam = events.stream().filter(e -> e.equals("detected")).count();
+        for(int i = 0; i < 60; i++) s.update(1f / 60f);
+        long afterSpam = events.stream().filter(e -> e.equals("detected")).count();
+        check("stealth: no detected-event spam", beforeSpam == 1 && afterSpam == 1, beforeSpam + " -> " + afterSpam);
+
         // noise spike on a fresh system
         StealthSystem s2 = new StealthSystem();
         StealthSystem.Observer o2 = s2.addObserver("dog");
@@ -322,6 +328,24 @@ public class VerifyV5 {
         for(int i = 0; i < 120; i++) m.update(1f / 60f);
         check("music: hold-dwell respects dwell", early || m.current.equals("explore"),
               "early=" + early + " now=" + m.current);
+
+        // regression: changing the request restarts the dwell clock
+        MusicDirector m3 = new MusicDirector();
+        m3.crossfadeSec = 0.1f;
+        m3.define(new MusicDirector.State("explore").track("x").dwellSec(1f));
+        m3.define(new MusicDirector.State("combat").track("y").dwellSec(1f));
+        m3.define(new MusicDirector.State("stealth").track("z").dwellSec(1f));
+        m3.request("explore", MusicDirector.Request.IMMEDIATE);
+        m3.request("combat", MusicDirector.Request.HOLD_DWELL);
+        for(int i = 0; i < 54; i++) m3.update(1f / 60f);            // 0.9 s of the dwell burned
+        m3.request("stealth", MusicDirector.Request.HOLD_DWELL);    // fresh request → clock resets
+        for(int i = 0; i < 57; i++) m3.update(1f / 60f);            // +0.95 s → still waiting
+        check("music: dwell resets on new request", m3.current.equals("explore"), "" + m3.current);
+        m3.update(1f / 60f);
+        m3.update(1f / 60f);
+        m3.update(1f / 60f);
+        m3.update(1f / 60f);
+        check("music: dwell completes after reset", m3.current.equals("stealth"), "" + m3.current);
     }
 
     // =====================================================================
