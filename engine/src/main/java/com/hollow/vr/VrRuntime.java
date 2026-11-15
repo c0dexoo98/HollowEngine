@@ -3,6 +3,7 @@ package com.hollow.vr;
 import com.hollow.core.Log;
 import com.hollow.core.MathX;
 import com.hollow.core.Mat4;
+import com.hollow.core.Quat;
 import com.hollow.core.Vec3;
 import com.hollow.render.StereoRig;
 
@@ -53,16 +54,15 @@ public final class VrRuntime {
             return stereo.eyes()[activeEye];
         }
 
-        /** view matrix for an eye = head pose composed with eye offset. */
+        /** camera pose for an eye = head pose composed with eye offset.
+         *  R11: the old version returned a translation-only matrix — head pitch/roll were
+         *  dropped and yaw only shifted the eye sideways, so a VR camera could not look around. */
         public Mat4 eyeView(int eye){
             StereoRig.Eye e = stereo.eyes()[MathX.clamp(eye, 0, 1)];
-            float rad = (float)Math.toRadians(headYawPitchRoll.x);
-            Vec3 off = e.offset;
-            Vec3 world = new Vec3(
-                headPos.x + (float)Math.cos(rad) * off.x - (float)Math.sin(rad) * off.z,
-                headPos.y + off.y,
-                headPos.z + (float)Math.sin(rad) * off.x + (float)Math.cos(rad) * off.z);
-            return Mat4.translation(new Vec3(world.x, world.y, world.z));
+            Quat head = Quat.fromEuler(headYawPitchRoll.y, headYawPitchRoll.x, headYawPitchRoll.z); // pitch, yaw, roll
+            Vec3 off = head.rotate(e.offset.cpy());          // eye offset in head space, fully rotated
+            return Mat4.trs(new Vec3(headPos.x + off.x, headPos.y + off.y, headPos.z + off.z),
+                            head, new Vec3(1, 1, 1));
         }
 
         public void endFrame(){ framesRendered++; }

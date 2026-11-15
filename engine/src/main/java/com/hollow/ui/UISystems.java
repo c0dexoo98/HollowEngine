@@ -288,16 +288,23 @@ public final class UISystems {
         }
         private final List<Combo> combos = new ArrayList<>();
         private final List<String> buffer = new ArrayList<>();
+        private final List<Float> bufferTime = new ArrayList<>();   // R15: per-press arrival time
         private float timer = 0f;
+        private float clock = 0f;
 
         public void register(String name, String[] sequence, float windowSec){
             combos.add(new Combo(name, sequence, windowSec));
         }
         /** feed an action press; returns matched combo name or null. */
         public String press(String action, float dt){
+            clock += dt;
             timer += dt;
-            if(timer > 1.5f) buffer.clear();
+            // R15: expire after the widest registered window (was hardcoded 1.5 s, windowSec ignored)
+            float maxWindow = 1.5f;
+            for(Combo c : combos) maxWindow = Math.max(maxWindow, c.windowSec);
+            if(timer > maxWindow){ buffer.clear(); bufferTime.clear(); }
             buffer.add(action);
+            bufferTime.add(clock);
             timer = 0f;
             for(Combo c : combos){
                 int n = c.sequence.length;
@@ -307,11 +314,14 @@ public final class UISystems {
                     if(!c.sequence[i].equals(buffer.get(buffer.size() - n + i))){ match = false; break; }
                 }
                 if(match){
+                    float span = clock - bufferTime.get(bufferTime.size() - n);   // R15: honor the combo's own window
+                    if(span > c.windowSec) continue;
                     buffer.clear();
+                    bufferTime.clear();
                     return c.name;
                 }
             }
-            if(buffer.size() > 8) buffer.remove(0);
+            if(buffer.size() > 8){ buffer.remove(0); bufferTime.remove(0); }
             return null;
         }
         public int bufferLen(){ return buffer.size(); }

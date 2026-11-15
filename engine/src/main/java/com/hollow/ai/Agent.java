@@ -54,6 +54,7 @@ public final class Agent extends Component {
     List<Vec3> currentPath = null;
     int pathIndex = 0;
     float stateTimer = 0f;
+    int searchCount = 0;                // P13: monotonic per-agent counter for deterministic re-search seeds
 
     public void registerCheck(String name, Check c){ checks.put(name, c); }
     public void registerAction(String name, Action a){ actions.put(name, a); }
@@ -208,13 +209,19 @@ public final class Agent extends Component {
         actions.put("eqs_move", (a, p) -> {
             String qp = str(p.get("query"), "");
             if(qp.isEmpty()) return true;
+            // P5: while a move is already in flight, stay RUNNING — the old code returned
+            // FAILURE every tick, re-running the expensive EQS query (~140 A* candidates)
+            // and re-targeting the agent before it ever arrived
+            if(a.hasMoveTarget){ a.actionRunning = true; return false; }
             com.hollow.ai.EQS.Query q = a.query(qp);
             if(q == null){ Log.w("Agent", "eqs query not found: " + qp); return true; }
             com.hollow.ai.EQS.Result r = com.hollow.ai.EQS.run(q, a);
             if(!r.found) return true;              // nothing valid — done
             a.bb.set("eqs_x", (double)r.point.x);
             a.bb.set("eqs_z", (double)r.point.z);
-            return a.moveTo(r.point, a.speed);
+            boolean arrived = a.moveTo(r.point, a.speed);
+            if(!arrived && a.hasMoveTarget) a.actionRunning = true;
+            return arrived;
         });
         // v2.0: set blackboard from EQS without moving
         actions.put("eqs_select", (a, p) -> {
@@ -271,8 +278,10 @@ public final class Agent extends Component {
         a.setState("search");
         a.stateTimer += 1f/60f;
         if(a.stateTimer > 2f || !a.hasMoveTarget){
+            // P13: seed BEFORE resetting the timer — the old code zeroed stateTimer first so the
+            // seed contribution was always 0 and every re-search picked the same jitter direction
+            MathX.Rng rng = new MathX.Rng(a.seed() ^ (a.searchCount++ * 0x9E3779B97F4A7C15L));
             a.stateTimer = 0;
-            MathX.Rng rng = new MathX.Rng(a.seed() ^ (long)(a.stateTimer * 1000));
             Vec3 base = a.perception != null ? a.perception.lastKnownTargetPos : a.entity.position;
             Vec3 jitter = rng.insideUnitSphere().scale(3f);
             jitter.y = 0;

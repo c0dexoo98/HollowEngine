@@ -47,21 +47,22 @@ public final class DayNightCycle extends Component {
         if(timeOfDay < 0) timeOfDay += 24f;
     }
 
-    /** compute sun direction for time t (0..24). Noon at azimuth south, elevation depends on tilt. */
+    /** compute sun direction for time t (0..24). Noon at azimuth south, elevation depends on tilt.
+     *  At night this returns the MOON path (positive elevation) — callers rely on that. */
     public Vec3 sunDirection(){
-        float dayT = (timeOfDay - SUNRISE) / (SUNSET - SUNRISE);          // 0..1 across the day
-        float ang;
         boolean night = timeOfDay < SUNRISE || timeOfDay > SUNSET;
+        float pathT;                                   // 0..1 across the current body's arc
         if(night){
-            // moon path: mirror of the sun
-            float nightT = timeOfDay > SUNSET ? (timeOfDay - SUNSET) / (30f - SUNSET + SUNRISE)
-                                              : (timeOfDay + 6f) / (SUNSET + 6f - SUNRISE + 6f);
-            ang = nightT * (float)Math.PI;
+            // R7: night spans 18h -> 30h (6 next morning) = 12 h. The old per-branch formulas
+            // (denominators 18 and 24) peaked at 6 AM, never hit midnight zenith, and jumped
+            // discontinuously when the clock wrapped 24 -> 0.
+            pathT = ((timeOfDay < SUNRISE ? timeOfDay + 24f : timeOfDay) - SUNSET) / (24f + SUNRISE - SUNSET);
         } else {
-            ang = dayT * (float)Math.PI;                                   // sunrise(0) -> noon(pi/2) -> sunset(pi)
+            pathT = (timeOfDay - SUNRISE) / (SUNSET - SUNRISE);            // sunrise(0) -> noon(.5) -> sunset(1)
         }
+        float ang = pathT * (float)Math.PI;                                // rise(0) -> zenith(pi/2) -> set(pi)
         float elev = (float)Math.sin(ang) * (1f - latitudeTilt * 0.6f);    // normalized elevation
-        float azim = dayT * 2f - 1f;                                       // -1..1 east->west
+        float azim = pathT * 2f - 1f;                                      // -1..1 east->west
         // direction FROM scene TO light source
         return new Vec3(azim * 0.8f, Math.max(0.05f, elev), -0.45f).norm();
     }
@@ -126,8 +127,12 @@ public final class DayNightCycle extends Component {
         sky.put("starDensity", Math.max(0f, 1f - dl * 2.5f));
         Map<String,Object> moon = asMap(sky.get("moonPos"));
         if(moon == null){ moon = new java.util.LinkedHashMap<>(); sky.put("moonPos", moon); }
-        moon.put("az", (sunAzimuth + 180f) % 360f - 180f);
-        moon.put("el", -sunElevation * 0.8f);
+        boolean isNight = dl < 0.25f;
+        // R7: at night sunDirection()/sunElevation already describe the MOON — the old code
+        // negated the elevation (moon locked below the horizon all night) and flipped the
+        // azimuth 180° so it never matched the visible path.
+        moon.put("az", isNight ? sunAzimuth : (sunAzimuth + 180f) % 360f - 180f);
+        moon.put("el", (isNight ? 1f : -1f) * sunElevation * 0.8f);
         // ---- fog ----
         Map<String,Object> fog = asMap(env.get("fog"));
         if(fog == null){ fog = new java.util.LinkedHashMap<>(); env.put("fog", fog); }

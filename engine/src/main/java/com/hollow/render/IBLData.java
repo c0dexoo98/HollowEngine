@@ -143,7 +143,9 @@ public final class IBLData {
                             sum.addScaled(sky, ndl);
                         }
                         if(sum.len2() > 1e-10f) sum.scale(1f / SAMPLES);
-                        int o = ((mip * 6 + face) * preSize * preSize + y * preSize + x) * 3;
+                        // R6: pack each mip with ITS OWN row stride — the GL upload reads this
+                        // region linearly (px = y*s+x), the old `y*preSize` stride only matched mip 0
+                        int o = ((mip * 6 + face) * preSize * preSize + y * size + x) * 3;
                         prefiltered[o] = sum.x; prefiltered[o + 1] = sum.y; prefiltered[o + 2] = sum.z;
                     }
                 }

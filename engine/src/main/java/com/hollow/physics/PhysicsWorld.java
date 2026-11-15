@@ -410,7 +410,7 @@ public final class PhysicsWorld {
         float tl = tang.len();
         if(tl < 1e-6f) return;
         float maxD = mu * Math.abs(vn) + 0.02f;
-        float remove = Math.min(tl, maxD * 60f * 0.016f * 10f);
+        float remove = Math.min(tl, maxD);   // P9: was maxD*60*0.016*10 (~9.6x, dt-hardcoded) — sticky slope jitter
         tang.scale(-remove / tl);
         rb.velocity.add(tang);
     }
@@ -512,14 +512,20 @@ public final class PhysicsWorld {
             float jImp = -(1f + e2) * relV / wSum;
             if(!A.kinematic) A.velocity.addScaled(nrm, -jImp * wA);
             if(!B.kinematic) B.velocity.addScaled(nrm,  jImp * wB);
-            Vec3 vt = sB.set(B.velocity).sub(A.velocity).addScaled(nrm, -relV);
+            // tangent must be built from the POST-impulse relative velocity: relV here is the
+            // pre-impulse value, so projecting against it leaks normal velocity into the
+            // tangent (with my earlier sign flip that CANCELLED the bounce — head-on pairs stuck)
+            float relVPost = B.velocity.dot(nrm) - A.velocity.dot(nrm);   // > 0: separating
+            Vec3 vt = sB.set(B.velocity).sub(A.velocity).addScaled(nrm, -relVPost);
             float vtLen = vt.len();
             if(vtLen > 1e-5f){
                 float mu = PhysicsMaterials.pairFriction(A, B);
                 float jt = Math.min(vtLen / wSum, mu * jImp);
                 Vec3 t = vt.scale(1f / vtLen);
-                if(!A.kinematic) A.velocity.addScaled(t, -jt * wA);
-                if(!B.kinematic) B.velocity.addScaled(t,  jt * wB);
+                // P1: friction OPPOSES relative tangential sliding (old signs pushed the
+                // bodies APART along the tangent — every dynamic collision slid faster)
+                if(!A.kinematic) A.velocity.addScaled(t,  jt * wA);
+                if(!B.kinematic) B.velocity.addScaled(t, -jt * wB);
             }
             if(A.sleepEnabled) A.wake();
             if(B.sleepEnabled) B.wake();

@@ -118,8 +118,11 @@ public final class RollbackSim {
         }
 
         // rollback check: did a confirmed input change what we already simulated?
-        if(confirmed < t){
-            int rollbackTo = confirmed + 1;   // first tick needing resim
+        if(confirmed > lastConfirmedTick){
+            // N1: resim from the FIRST tick whose inputs just became real — the old
+            // `confirmed + 1` skipped exactly the newly-confirmed ticks (which ran on
+            // predictions), so rollback was always a no-op and mispredictions never corrected
+            int rollbackTo = lastConfirmedTick + 1;
             if(rollbackTo < t - (maxRollbackFrames + InputBuffer.INPUT_REDUNDANCY + 2)){
                 // too far back — stall (freeze local tick) rather than desync.
                 // Grace = rollback window + redundancy tail + delivery slack:
@@ -165,7 +168,10 @@ public final class RollbackSim {
                 }
                 frameInputs.put(e.getKey(), f);
             }
-            // keep snapshots during resim so a second correction inside the window works
+            // N4: re-save the snapshot for every resimmed tick — the old code left the
+            // pre-correction states in place, so a SECOND correction inside the window
+            // restored the stale baseline and replayed garbage on top of it
+            saveSnapshot(t);
             game.stepTick(t, frameInputs);
             resimulatedFrames++;
         }

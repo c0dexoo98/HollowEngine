@@ -22,14 +22,15 @@ public final class Scene {
             String text = fs.readText(path);
             currentLoadingFS = fs;
             currentLoadingWorld = null;
-            World w = loadFromJson(Json.parseObj(text), simpleName(path));
-            currentLoadingWorld = null;
-            currentLoadingFS = null;
-            return w;
+            return loadFromJson(Json.parseObj(text), simpleName(path));
         } catch(Exception e){
             Log.e("Scene", "failed to load scene " + path, e);
-            World w = World.empty(simpleName(path));
-            return w;
+            return World.empty(simpleName(path));
+        } finally {
+            // R12: clear loading context on EVERY exit — otherwise a failed load leaves
+            // stale statics that later prefab/component resolution would resolve against
+            currentLoadingWorld = null;
+            currentLoadingFS = null;
         }
     }
 
@@ -45,17 +46,17 @@ public final class Scene {
 
         Map<String, Entity> byName = new java.util.HashMap<>();
         List<Entity> spawned = new java.util.ArrayList<>();
+        List<Map<String,Object>> spawnedJson = new java.util.ArrayList<>();
         for(Object o : ents){
             Map<String,Object> en = Json.obj(o);
             if(en == null) continue;
             Entity e = spawnFromJson(w, en);
-            if(e != null){ byName.put(e.name, e); spawned.add(e); }
+            if(e != null){ byName.put(e.name, e); spawned.add(e); spawnedJson.add(en); }
         }
-        // second pass: parenting (parallel to spawned — null entries no longer shift indices)
+        // second pass: parenting — spawnedJson[i] is the exact JSON node of spawned[i],
+        // so skipped/null entries in `ents` can no longer shift the pairing (R9)
         for(int i = 0; i < spawned.size(); i++){
-            Map<String,Object> en = Json.obj(ents.get(i));
-            if(en == null) continue;
-            String parent = Json.str(en.get("parent"), null);
+            String parent = Json.str(spawnedJson.get(i).get("parent"), null);
             if(parent != null && byName.containsKey(parent)){
                 byName.get(parent).addChild(spawned.get(i));
             }
@@ -68,6 +69,7 @@ public final class Scene {
         Entity e = w.spawn(Json.str(en.get("name"), null));
         e.tag = Json.str(en.get("tag"), "");
         e.active = Json.bool(en.get("active"), true);
+        e.layers = Json.int32(en.get("layers"), e.layers);   // R1: restore layer bitmask
         e.position.set(Json.vec3(en.get("position"), new Vec3()));
         e.scale.set(Json.vec3(en.get("scale"), new Vec3(1,1,1)));
         List<Object> rot = Json.arr(en.get("rotationEuler"));
@@ -113,6 +115,10 @@ public final class Scene {
             Json.keyRaw("name", b); Json.valRaw(e.name, b); b.append(',');
             if(!e.tag.isEmpty()){ Json.keyRaw("tag", b); Json.valRaw(e.tag, b); b.append(','); }
             Json.keyRaw("active", b); b.append(e.active); b.append(',');
+            if(e.parent() != null){                            // R1: persist hierarchy
+                Json.keyRaw("parent", b); Json.valRaw(e.parent().name, b); b.append(',');
+            }
+            Json.keyRaw("layers", b); b.append(e.layers); b.append(',');
             Json.keyRaw("position", b); b.append('[').append(Json.numRaw(e.position.x)).append(',').append(Json.numRaw(e.position.y)).append(',').append(Json.numRaw(e.position.z)).append("],");
             Json.keyRaw("scale", b); b.append('[').append(Json.numRaw(e.scale.x)).append(',').append(Json.numRaw(e.scale.y)).append(',').append(Json.numRaw(e.scale.z)).append("],");
             float[] eu = eulerAngles(e.rotation);

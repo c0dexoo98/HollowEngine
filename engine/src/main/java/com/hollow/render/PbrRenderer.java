@@ -190,7 +190,8 @@ public final class PbrRenderer {
     private final float[] selParam = new float[MAX_LIGHTS * 4];
     private final int[] selIdx = new int[MAX_LIGHTS];
     private final float[] selDist = new float[MAX_LIGHTS];
-    private long lastLightSignature = -1L;
+    private final int[] lastSelIdx = new int[MAX_LIGHTS];   // R10: exact selected-set compare —
+                                                            // the old 1L<<idx signature wrapped for idx > 63
     private int lastLightSelCount = -1;
 
     private final float[] moonDir = new float[3];
@@ -665,7 +666,6 @@ public final class PbrRenderer {
             if (lastLightSelCount != 0){
                 pbrShader.setInt("uLightCount", 0);
                 lastLightSelCount = 0;
-                lastLightSignature = 0L;
             }
             return false;
         }
@@ -685,10 +685,8 @@ public final class PbrRenderer {
             selIdx[slot] = l; selDist[slot] = d2;
         }
         int count = 0;
-        long sig = 0L;
         for (int i = 0; i < n; i++){
             if (selIdx[i] < 0) break;
-            sig |= 1L << selIdx[i];
             LightRec r = lightPool.get(selIdx[i]);
             int o = i * 4;
             selPos[o] = r.pos.x; selPos[o+1] = r.pos.y; selPos[o+2] = r.pos.z; selPos[o+3] = 0f;
@@ -698,13 +696,18 @@ public final class PbrRenderer {
             selParam[o+3] = r.kind == 1 ? 1f : 0f;
             count++;
         }
-        if (sig != lastLightSignature || count != lastLightSelCount){
+        boolean changed = count != lastLightSelCount;
+        if (!changed){
+            for (int i = 0; i < count; i++)
+                if (selIdx[i] != lastSelIdx[i]){ changed = true; break; }   // R10: exact set compare
+        }
+        if (changed){
             pbrShader.setVec4Array("uLightPos", selPos, count);
             pbrShader.setVec4Array("uLightColor", selColor, count);
             pbrShader.setVec4Array("uLightDir", selDir, count);
             pbrShader.setVec4Array("uLightParam", selParam, count);
             pbrShader.setInt("uLightCount", count);
-            lastLightSignature = sig;
+            System.arraycopy(selIdx, 0, lastSelIdx, 0, count);
             lastLightSelCount = count;
         }
         return count > 0;
@@ -1070,7 +1073,6 @@ public final class PbrRenderer {
         } else {
             pbrShader.setInt("uIBL", 0);
         }
-        lastLightSignature = -1L;
         lastLightSelCount = -1;
     }
 

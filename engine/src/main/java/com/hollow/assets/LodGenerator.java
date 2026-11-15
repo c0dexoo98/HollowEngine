@@ -74,7 +74,10 @@ public final class LodGenerator {
             int min = Math.min(a, Math.min(c, d)), max = Math.max(a, Math.max(c, d));
             int mid = a + c + d - min - max;
             long key = ((long)min << 40) | ((long)mid << 20) | max;
-            uniqueTris.putIfAbsent(key, new int[]{ a, mid, max });
+            // P10: keep the ORIGINAL winding (a, c, d = bucket indices in source order) —
+            // the old (a, mid, max) sorted-by-key storage scrambled triangle orientation
+            // and flipped normals on roughly half the decimated faces
+            uniqueTris.putIfAbsent(key, new int[]{ a, c, d });
         }
         MeshData out = new MeshData();
         int vc = bx.size();

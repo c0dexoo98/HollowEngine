@@ -24,14 +24,22 @@ public final class DebugSystems {
         public int maxLines = 200;
         public boolean visible = false;
         public boolean attached = false;
+        private com.hollow.core.Log.Sink prevSink = null;
 
         /** install a wrapping sink that mirrors logs into this panel. */
         public void attach(){
             if(attached) return;
+            prevSink = com.hollow.core.Log.sink();   // R14: remember what was installed before us
             com.hollow.core.Log.setSink((lvl, tag, msg) -> push(lvl + "[" + tag + "] " + msg));
             attached = true;
         }
-        public void detach(){ attached = false; }
+        public void detach(){
+            if(!attached) return;
+            // R14: was `attached = false` only — the panel kept consuming every log line forever
+            com.hollow.core.Log.setSink(prevSink);
+            prevSink = null;
+            attached = false;
+        }
         public void push(String line){
             lines.add(line);
             if(lines.size() > maxLines) lines.remove(0);

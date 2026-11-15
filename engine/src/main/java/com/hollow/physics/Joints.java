@@ -166,11 +166,17 @@ public final class Joints {
 
         @Override float solve(float dt){
             if(entity == null || bodyA == null || bodyB == null || broken) return 0f;
-            // position pin: pull anchors to midpoint
+            // position pin: pull anchors to midpoint, split by inverse mass
+            // P7: the old 50/50 split dragged a 1000 kg door as hard as a 0.1 kg frame — jitter on mass-imbalanced hinges
             Vec3 pa = entity.worldPosition(), pb = bodyB.entity.worldPosition();
             Vec3 mid = pa.cpy().add(pb).scale(0.5f);
-            if(!bodyA.kinematic && bodyA.mass > 0f) entity.position.add(mid.cpy().sub(pa).scale(0.5f));
-            if(!bodyB.kinematic && bodyB.mass > 0f) bodyB.entity.position.add(mid.cpy().sub(pb).scale(0.5f));
+            float wA = (!bodyA.kinematic && bodyA.mass > 0f) ? 1f / bodyA.mass : 0f;
+            float wB = (!bodyB.kinematic && bodyB.mass > 0f) ? 1f / bodyB.mass : 0f;
+            float wSum = wA + wB;
+            if(wSum > 1e-8f){
+                if(wA > 0f) entity.position.add(mid.cpy().sub(pa).scale(wA / wSum));
+                if(wB > 0f) bodyB.entity.position.add(mid.cpy().sub(pb).scale(wB / wSum));
+            }
             Vec3 n = axis.cpy();
             float len = n.len(); if(len < 1e-6f) return 0f;
             n.scale(1f / len);

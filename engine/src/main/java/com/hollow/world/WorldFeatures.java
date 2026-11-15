@@ -59,7 +59,7 @@ public final class WorldFeatures {
             float target = inside ? 1f : 0f;
             float step = blendTime > 0f ? dt / blendTime : 1f;
             blend = MathX.approach(blend, target, step);
-            if(inside) occupants++; else occupants = Math.max(0, occupants - 1);
+            occupants = inside ? 1 : 0;   // R13: was occupants++ per frame — a frame counter, not an occupancy count
         }
 
         /** blended ambient = lerp(exterior, interior, blend) */
@@ -80,10 +80,12 @@ public final class WorldFeatures {
               .kv("skyWeight",skyWeight).kv("blendTime",blendTime); w.endObj();
         }
         @Override public void load(JsonV n){
-            com.hollow.core.JsonV min = n.node("boundsMin");
-            com.hollow.core.JsonV max = n.node("boundsMax");
-            if(min.map != null) boundsMin = new float[]{ min.flt("x",-5), min.flt("y",0), min.flt("z",-5) };
-            if(max.map != null) boundsMax = new float[]{ max.flt("x",5), max.flt("y",3), max.flt("z",5) };
+            // R8: save() writes boundsMin/Max as ARRAYS via kvv() — node() wrapped the array in an
+            // empty map so the defaults silently won every load. Read the array format.
+            java.util.List<Object> min = n.list("boundsMin");
+            java.util.List<Object> max = n.list("boundsMax");
+            if(min != null && min.size() >= 3) boundsMin = new float[]{ (float)com.hollow.core.Json.num(min.get(0),-5), (float)com.hollow.core.Json.num(min.get(1),0), (float)com.hollow.core.Json.num(min.get(2),-5) };
+            if(max != null && max.size() >= 3) boundsMax = new float[]{ (float)com.hollow.core.Json.num(max.get(0),5), (float)com.hollow.core.Json.num(max.get(1),3), (float)com.hollow.core.Json.num(max.get(2),5) };
             interiorFog = n.flt("interiorFog", 0.02f); interiorReverb = n.flt("interiorReverb", 0.6f);
             skyWeight = n.flt("skyWeight", 0.05f); blendTime = n.flt("blendTime", 1.2f);
         }

@@ -70,6 +70,9 @@ public final class NetSystems {
                 return;
             }
             int len = bb.getShort();
+            // N10: trust-but-verify — a truncated/corrupt datagram (real over UDP) used to
+            // throw BufferUnderflowException straight through both endpoints' update loops
+            if(len < 0 || 7 + len > pkt.length) return;
             byte[] payload = new byte[len];
             bb.get(payload);
             if(flags == 1){
@@ -77,6 +80,11 @@ public final class NetSystems {
                 recvSeq = Math.max(recvSeq, seq);
                 received++;
                 sendAck(seq);
+                // N6: bound the dedup set — it grew forever (≈5M entries/day at 60 pkt/s)
+                // and int seq wraparound would eventually classify live packets as duplicates
+                if(recvSeq > 8192 && seenSeqs.size() > 8192){
+                    seenSeqs.removeIf(s -> s < recvSeq - 4096);
+                }
                 if(sink != null) sink.onPacket(payload, peerId);
             } else {
                 received++;
@@ -191,23 +199,32 @@ public final class NetSystems {
     // =====================================================================
     public static final class Prediction {
         public float lastServerTime = 0f;
-        public final List<float[]> pendingInputs = new ArrayList<>();     // [dt, vx, vy, vz]
+        public float localClock = 0f;                                    // N3: monotonic input timestamp
+        public final List<float[]> pendingInputs = new ArrayList<>();    // N3: [t, dt, vx, vy, vz]
         public float errorTolerance = 0.05f;
 
         /** client-side: predict local move instantly, remember input for reconcile. */
         public void predict(float[] pos, float dt, float vx, float vy, float vz){
             pos[0] += vx * dt; pos[1] += vy * dt; pos[2] += vz * dt;
-            pendingInputs.add(new float[]{ dt, vx, vy, vz });
+            pendingInputs.add(new float[]{ localClock, dt, vx, vy, vz });   // N3: stamp the input time
+            localClock += dt;
             if(pendingInputs.size() > 120) pendingInputs.remove(0);
         }
-        /** server authority snapshot arrives: rewind + replay unacked inputs. */
+        /** server authority snapshot arrives: rewind + replay only inputs the server has NOT applied yet. */
         public void reconcile(float[] pos, float serverX, float serverY, float serverZ, float serverTime){
             lastServerTime = serverTime;
             pos[0] = serverX; pos[1] = serverY; pos[2] = serverZ;
+            // N3: inputs stamped <= serverTime were already applied server-side — replaying
+            // them double-applied the whole in-flight window (overshoot by ~RTT each correction)
+            List<float[]> stillPending = new ArrayList<>();
             for(float[] in : pendingInputs){
-                pos[0] += in[1] * in[0]; pos[1] += in[2] * in[0]; pos[2] += in[3] * in[0];
+                if(in[0] > serverTime){
+                    pos[0] += in[2] * in[1]; pos[1] += in[3] * in[1]; pos[2] += in[4] * in[1];
+                    stillPending.add(in);
+                }
             }
             pendingInputs.clear();
+            pendingInputs.addAll(stillPending);
         }
         public float error(float[] pos, float sx, float sy, float sz){
             return (float)Math.sqrt((pos[0]-sx)*(pos[0]-sx) + (pos[1]-sy)*(pos[1]-sy) + (pos[2]-sz)*(pos[2]-sz));

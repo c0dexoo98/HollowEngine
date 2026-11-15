@@ -36,6 +36,8 @@ public final class CVar {
         CVar existing = REGISTRY.get(name);
         if(existing != null) return existing; // idempotent registration
         CVar v = new CVar(name, Type.INT, help, min, max, -Float.MAX_VALUE, Float.MAX_VALUE);
+        v.iv = Math.max(min, Math.min(max, def));   // N7: the bounded overload dropped the default (always started at 0)
+        v.bv = v.iv != 0;
         synchronized(CVar.class){ REGISTRY.put(name, v); }
         return v;
     }

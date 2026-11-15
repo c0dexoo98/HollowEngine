@@ -187,6 +187,7 @@ public final class Prefab {
         if(ents == null) return instantiate(w, worldPos);   // legacy single-entity prefab
         Map<String, Entity> byName = new LinkedHashMap<>();
         List<Entity> spawned = new ArrayList<>();
+        List<Map<String, Object>> spawnedJson = new ArrayList<>();
         for(Object o : ents){
             Map<String, Object> en = Json.obj(o);
             if(en == null) continue;
@@ -195,17 +196,15 @@ public final class Prefab {
             e.layers = Json.int32(en.get("layers"), 0xFFFFFFFF);
             byName.put(e.name, e);
             spawned.add(e);
+            spawnedJson.add(en);
         }
-        // parent links
-        int i = 0;
-        for(Object o : ents){
-            Map<String, Object> en = Json.obj(o);
-            if(en == null){ i++; continue; }
-            String parent = Json.str(en.get("parent"), null);
-            if(parent != null && byName.containsKey(parent) && i < spawned.size()){
+        // parent links — spawnedJson[i] is the exact node of spawned[i], so skipped
+        // entries in `ents` can no longer shift the pairing [R9]
+        for(int i = 0; i < spawned.size(); i++){
+            String parent = Json.str(spawnedJson.get(i).get("parent"), null);
+            if(parent != null && byName.containsKey(parent)){
                 byName.get(parent).addChild(spawned.get(i));
             }
-            i++;
         }
         Entity root = spawned.isEmpty() ? null : spawned.get(0);
         if(root != null && worldPos != null){

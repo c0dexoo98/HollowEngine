@@ -274,7 +274,8 @@ public final class Animator extends Component {
         float[] accScl = new float[jointCount * 3];
         float[] accRot = new float[jointCount * 4];
         float[] chWeight = new float[jointCount];
-        Quat q1 = new Quat(), q2 = new Quat();
+        float[] chRotWeight = new float[jointCount];   // P2: rotation-only channels never fed chWeight
+        Quat q2 = new Quat();
         for(int i = 0; i < wr.count; i++){
             AnimClip c = clips.get(wr.clips[i]);
             if(c == null) continue;
@@ -296,9 +297,11 @@ public final class Animator extends Component {
                 }
                 if(ch.rotations != null && ch.rotations.length >= 4){
                     c.sampleRotation(ch, t, bwQuat);
-                    q1.set(0,0,0,1).slerp(bwQuat, MathX.clamp(wgt / Math.max(wSum, chWeight[ji] + wgt), 0f, 1f));
-                    // weighted quat blend: normalize lerp accumulation (nlerp — stable at gameplay scale)
-                    if(chWeight[ji] == 0f && accRot[ji*4+3] == 0f && accRot[ji*4] == 0f && accRot[ji*4+1] == 0f && accRot[ji*4+2] == 0f){
+                    // weighted quat blend: nlerp accumulation (stable at gameplay scale).
+                    // P2: gate the first-touch on accRot alone — chWeight is fed by the TRANSLATION
+                    // branch, so rotation-only joints never reached the accumulate path and their
+                    // animated rotation was dropped by the final normalize (frozen joints).
+                    if(accRot[ji*4] == 0f && accRot[ji*4+1] == 0f && accRot[ji*4+2] == 0f && accRot[ji*4+3] == 0f){
                         accRot[ji*4]=bwQuat.x*wgt; accRot[ji*4+1]=bwQuat.y*wgt; accRot[ji*4+2]=bwQuat.z*wgt; accRot[ji*4+3]=bwQuat.w*wgt;
                     } else {
                         q2.set(accRot[ji*4], accRot[ji*4+1], accRot[ji*4+2], accRot[ji*4+3]);
@@ -306,6 +309,7 @@ public final class Animator extends Component {
                         accRot[ji*4]  += bwQuat.x*wgt; accRot[ji*4+1] += bwQuat.y*wgt;
                         accRot[ji*4+2] += bwQuat.z*wgt; accRot[ji*4+3] += bwQuat.w*wgt;
                     }
+                    chRotWeight[ji] += wgt;
                 }
             }
         }
@@ -314,6 +318,8 @@ public final class Animator extends Component {
             if(w > 1e-5f){
                 sPos[ji].set(accPos[ji*3]/w, accPos[ji*3+1]/w, accPos[ji*3+2]/w);
                 sScl[ji].set(accScl[ji*3]/w, accScl[ji*3+1]/w, accScl[ji*3+2]/w);
+            }
+            if(chRotWeight[ji] > 1e-5f){   // P2: normalize by the ROTATION weight, not the translation weight
                 sRot[ji].set(accRot[ji*4], accRot[ji*4+1], accRot[ji*4+2], accRot[ji*4+3]).norm();
             }
             // joints no clip touches keep the rest pose set above

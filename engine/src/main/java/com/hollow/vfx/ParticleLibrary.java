@@ -66,7 +66,11 @@ public final class ParticleLibrary {
             Instance inst = emitters.get(e);
             ParticleEmitter src = inst.src;
             Entity ent = src.entity;
-            if(ent == null || ent.destroyed){ emitters.remove(e); continue; }
+            if(ent == null || ent.destroyed){
+                live -= inst.particles.size();   // R3: was leaked — GLOBAL_CAP filled up and spawning died forever
+                emitters.remove(e);
+                continue;
+            }
             try {
                 updateInstance(inst, ent, dt, seed);
             } catch(Exception ex){
@@ -258,9 +262,10 @@ public final class ParticleLibrary {
                 }
                 float x = p[0], y = p[1], z = p[2];
                 if(inst.src.localSpace && ent != null){
-                    Vec3 wp = tmpPos.set(x, y, z);
-                    ent.worldMatrix.transformPoint(wp);
-                    x = wp.x; y = wp.y; z = wp.z;
+                    // R4: transformPoint is pure — the old code discarded the returned vector,
+                    // so local-space particles never followed their emitter
+                    Vec3 tp = ent.worldMatrix.transformPoint(tmpPos.set(x, y, z));
+                    x = tp.x; y = tp.y; z = tp.z;
                 }
                 out[o] = x; out[o + 1] = y; out[o + 2] = z;
                 out[o + 3] = Math.max(0f, size);

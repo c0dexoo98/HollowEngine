@@ -157,11 +157,16 @@ public final class Session {
                 if(!first) sb.append(',');
                 first = false;
                 ReplicatedState s = e.getValue();
-                sb.append("{\"n\":\"").append(e.getKey()).append('"')
-                  .append(",\"x\":").append(s.x)
-                  .append(",\"y\":").append(s.y)
-                  .append(",\"z\":").append(s.z)
-                  .append(",\"ry\":").append(s.rotY).append('}');
+                // N5: escape entity names + NaN-safe numbers — the hand-rolled JSON threw on
+                // every client (silently swallowed) when a name contained quotes or a
+                // physics blowup produced NaN/Infinity positions
+                sb.append('{');
+                Json.keyRaw("n", sb); Json.valRaw(e.getKey(), sb); sb.append(',');
+                Json.keyRaw("x", sb); sb.append(Json.numRaw(s.x)).append(',');
+                Json.keyRaw("y", sb); sb.append(Json.numRaw(s.y)).append(',');
+                Json.keyRaw("z", sb); sb.append(Json.numRaw(s.z)).append(',');
+                Json.keyRaw("ry", sb); sb.append(Json.numRaw(s.rotY));
+                sb.append('}');
             }
             sb.append("]}");
             NetMessage snap = pack(SNAPSHOT, sb.toString().getBytes());

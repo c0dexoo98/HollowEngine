@@ -44,7 +44,7 @@ public final class EnvFeatures {
         @Override public void onUpdate(float dt){
             currentTemp = MathX.approach(currentTemp, targetTemp, blendSpeed * dt);
             Entity host = entity;
-            if(host != null && contains(host.worldPosition())) visitors++;
+            visitors = (host != null && contains(host.worldPosition())) ? 1 : 0;   // R13: was visitors++ per frame
         }
 
         /** steam intensity 0..1 at a world point (hot + humid + noise shimmer). */
@@ -70,10 +70,11 @@ public final class EnvFeatures {
               .kv("outsideTemp",outsideTemp).kv("blendSpeed",blendSpeed); w.endObj();
         }
         @Override public void load(JsonV n){
-            com.hollow.core.JsonV min = n.node("boundsMin");
-            com.hollow.core.JsonV max = n.node("boundsMax");
-            if(min.map != null) boundsMin = new float[]{ min.flt("x",-4), min.flt("y",0), min.flt("z",-4) };
-            if(max.map != null) boundsMax = new float[]{ max.flt("x",4), max.flt("y",3), max.flt("z",4) };
+            // R8: kvv() saves arrays; node() wrapped them in empty maps → defaults won. Read arrays.
+            java.util.List<Object> min = n.list("boundsMin");
+            java.util.List<Object> max = n.list("boundsMax");
+            if(min != null && min.size() >= 3) boundsMin = new float[]{ (float)com.hollow.core.Json.num(min.get(0),-4), (float)com.hollow.core.Json.num(min.get(1),0), (float)com.hollow.core.Json.num(min.get(2),-4) };
+            if(max != null && max.size() >= 3) boundsMax = new float[]{ (float)com.hollow.core.Json.num(max.get(0),4), (float)com.hollow.core.Json.num(max.get(1),3), (float)com.hollow.core.Json.num(max.get(2),4) };
             targetTemp = n.flt("targetTemp", 38f); humidity = n.flt("humidity", 0.85f);
             outsideTemp = n.flt("outsideTemp", 12f); blendSpeed = n.flt("blendSpeed", 0.8f);
         }
@@ -200,8 +201,10 @@ public final class EnvFeatures {
               .kv("reflectionQuality",reflectionQuality).kv("reflectLights",reflectLights); w.endObj();
         }
         @Override public void load(JsonV n){
-            com.hollow.core.JsonV nn = n.node("normal");
-            if(nn.map != null) normal = new Vec3(nn.flt("x",0), nn.flt("y",1), nn.flt("z",0));
+            // R8: kvv() saves an array — node() wrapped it in an empty map → default won. Read array.
+            java.util.List<Object> nn = n.list("normal");
+            if(nn != null && nn.size() >= 3) normal = new Vec3(
+                (float)com.hollow.core.Json.num(nn.get(0),0), (float)com.hollow.core.Json.num(nn.get(1),1), (float)com.hollow.core.Json.num(nn.get(2),0));
             width = n.flt("width", 4f); height = n.flt("height", 3f);
             reflectionQuality = n.flt("reflectionQuality", 0.7f);
             reflectLights = n.bool("reflectLights", true);

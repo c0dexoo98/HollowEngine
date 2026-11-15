@@ -14,6 +14,11 @@ public interface FileSystem {
     boolean isDirectory(String path);
     void write(String path, byte[] data) throws IOException;
     void delete(String path) throws IOException;
+    /** N8: atomic rename where the FS supports it; safe copy+delete fallback otherwise. */
+    default boolean move(String from, String to){
+        try { write(to, read(from)); delete(from); return true; }
+        catch(Exception e){ return false; }
+    }
 
     default String readText(String path) throws IOException { return new String(read(path), java.nio.charset.StandardCharsets.UTF_8); }
     default InputStream open(String path) throws IOException { return new java.io.ByteArrayInputStream(read(path)); }

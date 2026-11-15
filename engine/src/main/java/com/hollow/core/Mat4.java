@@ -156,7 +156,10 @@ public final class Mat4 {
     public static Mat4 perspectiveReversedZ(float fovYDeg, float aspect, float near, float far){
         Mat4 std = perspective(fovYDeg, aspect, near, far);
         Mat4 r = new Mat4();
-        // flip Z mapping: z' = 1 - z'
+        // N2: new Mat4() is identity() — m[15]=1 leaked into the projection so clip.w became
+        // (1 - z) instead of (-z) and every perspective divide was garbage. Zero it first.
+        // (verified numerically: with m[15]=0, ndc(near)=+1 / ndc(far)=-1 => depth 1 / 0)
+        java.util.Arrays.fill(r.m, 0f);
         r.m[0]=std.m[0]; r.m[5]=std.m[5];
         r.m[10]=-std.m[10]; r.m[11]=std.m[11];
         r.m[14]=-std.m[14];

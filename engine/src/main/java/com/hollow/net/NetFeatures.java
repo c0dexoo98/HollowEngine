@@ -83,14 +83,32 @@ public final class NetFeatures {
             } catch(Exception e){ key = new byte[32]; }
         }
 
-        /** encrypt/decrypt in place (XOR is symmetric) — first 8 bytes of the payload
-         *  carry the per-packet counter for stream rotation. */
+        /** encrypt: prepends the 8-byte per-packet counter (little-endian) documented above,
+         *  then XORs with the key rotated by that counter.
+         *  N12: the old code ignored the documented in-packet counter and used a local
+         *  call-count offset — any asymmetric traffic (retransmit, dropped exchange)
+         *  desynced both directions permanently with no recovery path. */
         public byte[] crypt(byte[] payload){
             if(key == null) throw new IllegalStateException("handshake not ready");
-            byte[] out = new byte[payload.length];
-            int kOff = packetCounter * 7 % key.length;
-            for(int i = 0; i < payload.length; i++) out[i] = (byte)(payload[i] ^ key[(kOff + i) % key.length]);
-            packetCounter++;
+            long ctr = (packetCounter++ & 0xFFFFFFFFFFFFL);
+            byte[] out = new byte[payload.length + 8];
+            for(int i = 0; i < 8; i++) out[i] = (byte)(ctr >> (8 * i));
+            int kOff = (int)(ctr * 7 % key.length);
+            for(int i = 0; i < payload.length; i++)
+                out[8 + i] = (byte)(payload[i] ^ key[(kOff + i) % key.length]);
+            return out;
+        }
+        /** decrypt a crypt()'d packet: strip the leading counter and undo the XOR it selects. */
+        public byte[] decrypt(byte[] packet){
+            if(key == null) throw new IllegalStateException("handshake not ready");
+            if(packet.length <= 8) return new byte[0];
+            long ctr = 0;
+            for(int i = 0; i < 8; i++) ctr |= (packet[i] & 0xFFL) << (8 * i);
+            int kOff = (int)(ctr * 7 % key.length);
+            int n = packet.length - 8;
+            byte[] out = new byte[n];
+            for(int i = 0; i < n; i++)
+                out[i] = (byte)(packet[8 + i] ^ key[(kOff + i) % key.length]);
             return out;
         }
 

@@ -59,8 +59,10 @@ public final class IK {
         }
         bendAxis.norm();
 
-        // rotate chain direction back by angleA around bendAxis to get upper-bone direction
-        Quat qA = Quat.fromAxisAngle(bendAxis.x, bendAxis.y, bendAxis.z, -angleA * MathX.DEG);
+        // rotate chain direction back by angleA around bendAxis to get upper-bone direction.
+        // P4: fromAxisAngle takes DEGREES (see Quat) — the old `angleA * MathX.DEG` multiplied
+        // radians by pi/180, producing a ~3277x too small bend (the chain barely flexed).
+        Quat qA = Quat.fromAxisAngle(bendAxis.x, bendAxis.y, bendAxis.z, -(float)Math.toDegrees(angleA));
         Vec3 upperDir = qA.rotate(dir.cpy()).norm();
 
         // world rotations that bring +Y (bone axis convention) onto upperDir / limb dir

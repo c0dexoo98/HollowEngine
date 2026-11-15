@@ -37,6 +37,18 @@ public final class NativeFS implements FileSystem {
         Files.write(p, data);
     }
     @Override public void delete(String path) throws IOException { Files.deleteIfExists(safe(path)); }
+    @Override public boolean move(String from, String to){
+        try {
+            Files.move(safe(from), safe(to),
+                StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);   // N8
+            return true;
+        } catch(AtomicMoveNotSupportedException e){
+            try {
+                Files.move(safe(from), safe(to), StandardCopyOption.REPLACE_EXISTING);
+                return true;
+            } catch(Exception ex){ return false; }
+        } catch(Exception e){ return false; }
+    }
 
     /** recursive walk relative paths under dir */
     public List<String> walk(String dir) throws IOException {

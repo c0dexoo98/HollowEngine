@@ -18,6 +18,12 @@ public final class EventBus {
     public void listen(String name, Listener l){
         listeners.computeIfAbsent(name, k -> new ArrayList<>()).add(l);
     }
+    /** P8: remove a listener — components that subscribe on onAttach must unsubscribe on
+     *  onDetach or every spawned/destroyed entity leaks its lambda into the bus forever. */
+    public void unlisten(String name, Listener l){
+        List<Listener> ls = listeners.get(name);
+        if(ls != null) ls.remove(l);
+    }
     public void fire(String name){ fire(name, null); }
     public void fire(String name, Map<String,Object> data){
         queue.add(new Queued(name, data));

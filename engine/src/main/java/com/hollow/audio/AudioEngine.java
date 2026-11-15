@@ -319,6 +319,7 @@ public final class AudioEngine {
         // AUD-028 seamless loop crossfade window (in clip frames)
         int fadeFrames = v.p.loopCrossfadeSec > 0f ? (int)(v.p.loopCrossfadeSec * c.sampleRate) : 0;
         fadeFrames = Math.min(fadeFrames, Math.max(1, totalFrames / 8));
+        boolean occluded = occlusion > 0.01f && frames <= occlScratch.length / 2;   // P11
 
         for(int f = 0; f < frames; f++){
             if(v.cursor >= totalFrames){
@@ -351,6 +352,20 @@ public final class AudioEngine {
                     l = lerpF(l, c.pcm[j0 * 2] * lgain, t);
                     r = lerpF(r, c.pcm[j0 * 2 + 1] * rgain, t);
                 }
+            } else if(v.p.loop && fadeFrames > 0 && v.cursor < fadeFrames){
+                // P14: with pitch > 1 the block can leap past the entire pre-wrap window in one
+                // step — complete the crossfade over the first head frames instead of clicking
+                float t = 1f - (float)(v.cursor / fadeFrames);
+                int j0 = (int)(totalFrames - fadeFrames + v.cursor);
+                if(j0 < 0) j0 = 0;
+                if(j0 > totalFrames - 1) j0 = totalFrames - 1;
+                if(ch == 1){
+                    l = lerpF(l, c.pcm[j0] * lgain, t);
+                    r = lerpF(r, c.pcm[j0] * rgain, t);
+                } else {
+                    l = lerpF(l, c.pcm[j0 * 2] * lgain, t);
+                    r = lerpF(r, c.pcm[j0 * 2 + 1] * rgain, t);
+                }
             }
             // AUD-018: HRTF-lite replaces static pan (ITD+ILD in the Binaural block)
             if(v.hrtfActive){
@@ -359,38 +374,50 @@ public final class AudioEngine {
                 l = binauralScratch[0]; r = binauralScratch[1];
             }
             int mi = f * 2;
-            dst[mi] += l;
-            dst[mi + 1] += r;
-            // AUD-029: per-voice delay send
-            float ds = v.p.delaySend;
-            if(ds > 0f){
-                fDelay[mi] += l * ds;
-                fDelay[mi + 1] += r * ds;
-            }
-            if(send > 0f){
-                wet[mi] += l * send;
-                wet[mi + 1] += r * send;
+            // P11: when occluded, stage THIS voice's own samples — the old code copied the
+            // shared master mix (all voices accumulated so far) over with one voice's
+            // filtered version, corrupting the entire block
+            if(occluded){
+                occlScratch[mi] = l; occlScratch[mi + 1] = r;
+            } else {
+                dst[mi] += l;
+                dst[mi + 1] += r;
+                // AUD-029: per-voice delay send
+                float ds = v.p.delaySend;
+                if(ds > 0f){
+                    fDelay[mi] += l * ds;
+                    fDelay[mi + 1] += r * ds;
+                }
+                if(send > 0f){
+                    wet[mi] += l * send;
+                    wet[mi + 1] += r * send;
+                }
             }
             v.cursor += sstep;
         }
-        // AUD-023: wall occlusion — lowpass + gain on this voice's contribution
-        // (per-voice scratch: must NOT touch dst directly — that is the shared master mix)
-        if(occlusion > 0.01f && frames <= occlScratch.length / 2){
-            occlScratchFill(dst, frames);
+        // AUD-023: wall occlusion — lowpass this voice's dry block, THEN accumulate
+        if(occluded){
             v.occlFilter.process(occlusion, occlScratch, frames, sampleRate);
-            occlScratchBlend(dst, frames);
+            for(int f = 0; f < frames; f++){
+                int mi = f * 2;
+                float l = occlScratch[mi], r = occlScratch[mi + 1];
+                dst[mi] += l;
+                dst[mi + 1] += r;
+                float ds = v.p.delaySend;
+                if(ds > 0f){
+                    fDelay[mi] += l * ds;
+                    fDelay[mi + 1] += r * ds;
+                }
+                if(send > 0f){
+                    wet[mi] += l * send;
+                    wet[mi + 1] += r * send;
+                }
+            }
         }
     }
 
     private static float lerpF(float a, float b, float t){ return a + (b - a) * t; }
-    private final float[] occlScratch = new float[2 * 4096];   // per-voice occlusion staging
-    private void occlScratchFill(float[] src, int frames){
-        System.arraycopy(src, 0, occlScratch, 0, frames * 2);
-    }
-    private void occlScratchBlend(float[] dst, int frames){
-        // overwrite the voice's contribution with the filtered version
-        System.arraycopy(occlScratch, 0, dst, 0, frames * 2);
-    }
+    private final float[] occlScratch = new float[2 * 4096];   // per-voice occlusion staging (P11)
     private final float[] binauralScratch = new float[2];   // AUD-018 per-sample out
 
     // ---------------- handle + params (public API identical to stub) ----------------

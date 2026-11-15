@@ -2265,13 +2265,14 @@ public final class Commands {
             com.hollow.net.NetSystems.Prediction pr = new com.hollow.net.NetSystems.Prediction();
             float[] pos = {0, 0, 0};
             for(int i = 0; i < 10; i++) pr.predict(pos, 0.016f, 10f, 0, 0);
-            // server disagrees (lagged): authoritative x = 1.2
+            // server disagrees (lagged): authoritative x = 1.2, and its snapshot already
+            // covers t <= 0.05 (the first 4 inputs are acked — N3 semantics)
             float serverX = 1.2f;
-            pr.reconcile(pos, serverX, 0, 0, 1.0f);
-            // replay should carry forward 10 frames of +10 m/s * 16ms
-            float expect = serverX + 10f * 0.16f;
+            pr.reconcile(pos, serverX, 0, 0, 0.05f);
+            // replay carries forward only the 6 pending inputs (t > 0.05)
+            float expect = serverX + 10f * 0.016f * 6;
             if(Math.abs(pos[0] - expect) > 0.02f) throw new AssertionError("replay " + pos[0] + " vs " + expect);
-            if(!pr.pendingInputs.isEmpty()) throw new AssertionError("inputs not cleared");
+            if(pr.pendingInputs.size() != 6) throw new AssertionError("pending " + pr.pendingInputs.size());
             pass("Client prediction + reconcile (NET-008)");
         } catch(Throwable t){ fail("predict", t); failures++; }
 
@@ -3668,8 +3669,15 @@ public final class Commands {
             byte[] plain = "attack at dawn".getBytes("UTF-8");
             byte[] enc = client.crypt(plain);
             if(java.util.Arrays.equals(enc, plain)) throw new AssertionError("no encryption");
-            byte[] dec = server.crypt(enc);
+            byte[] dec = server.decrypt(enc);   // N12: counter now rides in the packet
             if(!java.util.Arrays.equals(dec, plain)) throw new AssertionError("decrypt mismatch");
+            // asymmetric traffic must not desync the stream (N12 regression guard)
+            byte[] enc2 = client.crypt(plain);
+            byte[] enc3 = client.crypt(plain);
+            byte[] dec2 = server.decrypt(enc3);
+            byte[] dec3 = server.decrypt(enc2);
+            if(!java.util.Arrays.equals(dec2, plain) || !java.util.Arrays.equals(dec3, plain))
+                throw new AssertionError("counter desync on out-of-order decrypt");
             pass("net013 handshake crypto");
         } catch(Throwable t){ fail("net013", t); failures++; }
 
@@ -3940,6 +3948,53 @@ public final class Commands {
             if(session.rig.framesRendered != 60) throw new AssertionError("session frames");
             pass("vr001-010 headless VR pipeline");
         } catch(Throwable t){ fail("vr", t); failures++; }
+
+        // --- v4.0.0 AAA systems: terrain / ocean / weather / GAS / waves / replay ---
+        try {
+            com.hollow.world.Terrain ter = new com.hollow.world.Terrain(0xAAAA, 129, 2f, 30f);
+            float h0 = ter.heightAt(10f, 10f);
+            ter.raise(10f, 10f, 4f, 4f);
+            if(ter.heightAt(10f, 10f) <= h0 + 2f) throw new AssertionError("brush");
+            com.hollow.world.Terrain.Hit th = new com.hollow.world.Terrain.Hit();
+            if(!ter.raycast(new com.hollow.core.Vec3(10f, h0 + 20f, 10f), new com.hollow.core.Vec3(0,-1,0), 50f, th))
+                throw new AssertionError("terrain raycast");
+            pass("aaa terrain (sculpt + raycast)");
+        } catch(Throwable t){ fail("aaa-terrain", t); failures++; }
+
+        try {
+            com.hollow.world.Ocean sea = new com.hollow.world.Ocean();
+            float sub = sea.submersionAt(-2f, 0f, 0f, 0f, 0.6f);
+            if(sub != 1f) throw new AssertionError("submersion " + sub);
+            com.hollow.gameplay.AbilitySystem gas = new com.hollow.gameplay.AbilitySystem();
+            gas.applyEffect(new com.hollow.gameplay.AbilitySystem.Effect("burn")
+                .mod("health", com.hollow.gameplay.AbilitySystem.Modifier.Op.ADD, -5f)
+                .every(1f).forDuration(2.5f).tag("status.burn"));
+            if(!gas.tags.has("status.burn")) throw new AssertionError("grant tag");
+            gas.update(1f);
+            if(gas.attr("health") != 95f) throw new AssertionError("periodic tick " + gas.attr("health"));
+            pass("aaa ocean + GAS effect");
+        } catch(Throwable t){ fail("aaa-ocean-gas", t); failures++; }
+
+        try {
+            final java.util.List<String> spawned = new java.util.ArrayList<>();
+            com.hollow.gameplay.WaveDirector wd = new com.hollow.gameplay.WaveDirector(
+                new com.hollow.gameplay.WaveDirector.WaveDef().enemy("grunt", 2).pace(0.05f).rest(0.1f));
+            wd.spawner = (type, wave) -> { spawned.add(type); return true; };
+            wd.start();
+            for(int i = 0; i < 600 && wd.state != com.hollow.gameplay.WaveDirector.State.DONE; i++){
+                wd.update(1f / 30f);
+                if(wd.state == com.hollow.gameplay.WaveDirector.State.FIGHTING) wd.notifyDeath();
+            }
+            if(spawned.size() != 2) throw new AssertionError("spawned " + spawned.size());
+
+            com.hollow.game.Replay rep = new com.hollow.game.Replay();
+            for(long t = 0; t <= 60; t++) rep.record(t, "p", t, t * 2f, 0f, 0f);
+            float[] out = new float[4];
+            if(!rep.sample(30, "p", out) || Math.abs(out[0] - 30f) > 0.01f) throw new AssertionError("replay sample");
+            com.hollow.game.Replay rep2 = com.hollow.game.Replay.load(rep.save());
+            if(rep2.channelCount() != 1) throw new AssertionError("replay roundtrip");
+            pass("aaa wave director + replay");
+        } catch(Throwable t){ fail("aaa-waves-replay", t); failures++; }
 
         return failures;
     }

@@ -39,7 +39,7 @@ public final class SaveFeatures {
 
         public boolean isAndroid(){ return !androidFilesDir.isEmpty(); }
 
-        /** atomic write: bytes go to `<name>.tmp` first, then swapped into place. */
+        /** atomic write: bytes go to `<name>.tmp` first, then atomically swapped into place. */
         public boolean atomicWrite(String name, byte[] data){
             if(data.length > quotaBytes){
                 Log.w("SafeSave", "quota exceeded (" + data.length + " > " + quotaBytes + ")");
@@ -48,10 +48,17 @@ public final class SaveFeatures {
             String dir = saveDir();
             try {
                 fs.write(dir + "/" + name + ".tmp", data);
-                fs.write(dir + "/" + name, data);
+                // N8: the old double-write was NOT atomic (crash mid-final-write corrupted the
+                // slot) and the .tmp was never cleaned up; a real atomic swap closes both holes
+                if(!fs.move(dir + "/" + name + ".tmp", dir + "/" + name)){
+                    try { fs.delete(dir + "/" + name + ".tmp"); } catch(Exception ignored){ }
+                    Log.e("SafeSave", "atomic swap failed: " + name);
+                    return false;
+                }
                 lastWriteBytes = data.length;
                 return true;
             } catch(Exception e){
+                try { fs.delete(dir + "/" + name + ".tmp"); } catch(Exception ignored){ }
                 Log.e("SafeSave", "atomic write failed: " + name, e);
                 return false;
             }

@@ -24,7 +24,7 @@ public final class Json {
     public static Map<String,Object> parseObj(String s){ return (Map<String,Object>) parse(s); }
 
     private static final class P {
-        final String s; final int n; int i;
+        final String s; final int n; int i; int depth = 0;
         P(String s){ this.s=s; this.n=s.length(); }
         Err err(String m){ return new Err(m + " at " + i + " near \"" + s.substring(Math.max(0,Math.min(i,n-1)), Math.min(n, i+20)) + "\""); }
         void ws(){ while(i<n){ char c=s.charAt(i); if(c==' '||c=='\t'||c=='\n'||c=='\r') i++; else break; } }
@@ -47,34 +47,42 @@ public final class Json {
             i += w.length();
         }
         Map<String,Object> obj(){
-            Map<String,Object> m = new LinkedHashMap<>();
-            i++; ws();
-            if(peek()=='}'){ i++; return m; }
-            while(true){
-                ws();
-                if(peek()!='"') throw err("expected key string");
-                String k = string(); ws();
-                if(peek()!=':') throw err("expected ':'");
-                i++; ws(); // value() skips ws anyway
-                m.put(k, value());
-                ws();
-                char c = peek();
-                if(c==','){ i++; continue; }
-                if(c=='}'){ i++; return m; }
-                throw err("expected ',' or '}'");
-            }
+            if(depth >= 256) throw err("nesting too deep");   // N11: hostile deep nesting must
+            depth++;                                          // surface as a catchable Err, not a StackOverflowError (an Error slips past every catch(Exception) on network paths)
+            try {
+                Map<String,Object> m = new LinkedHashMap<>();
+                i++; ws();
+                if(peek()=='}'){ i++; return m; }
+                while(true){
+                    ws();
+                    if(peek()!='"') throw err("expected key string");
+                    String k = string(); ws();
+                    if(peek()!=':') throw err("expected ':'");
+                    i++; ws(); // value() skips ws anyway
+                    m.put(k, value());
+                    ws();
+                    char c = peek();
+                    if(c==','){ i++; continue; }
+                    if(c=='}'){ i++; return m; }
+                    throw err("expected ',' or '}'");
+                }
+            } finally { depth--; }
         }
         List<Object> arr(){
-            List<Object> l = new ArrayList<>();
-            i++; ws();
-            if(peek()==']'){ i++; return l; }
-            while(true){
-                l.add(value()); ws();
-                char c = peek();
-                if(c==','){ i++; continue; }
-                if(c==']'){ i++; return l; }
-                throw err("expected ',' or ']'");
-            }
+            if(depth >= 256) throw err("nesting too deep");
+            depth++;
+            try {
+                List<Object> l = new ArrayList<>();
+                i++; ws();
+                if(peek()==']'){ i++; return l; }
+                while(true){
+                    l.add(value()); ws();
+                    char c = peek();
+                    if(c==','){ i++; continue; }
+                    if(c==']'){ i++; return l; }
+                    throw err("expected ',' or ']'");
+                }
+            } finally { depth--; }
         }
         String string(){
             StringBuilder b = new StringBuilder();

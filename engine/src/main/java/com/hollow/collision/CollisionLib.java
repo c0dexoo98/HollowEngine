@@ -643,13 +643,17 @@ public final class CollisionLib {
             Vec3 ax = a.rotation.right(), ay = a.rotation.up(), az = a.rotation.forward().scale(-1f);
             Vec3[] bAxes = { b.rotation.right(), b.rotation.up(), b.rotation.forward().scale(-1f) };
             Vec3 incAxis = bAxes[0];
+            int incIdx = 0;                                    // P12: track WHICH axis won
             float bestDot = Float.MAX_VALUE;
-            for(Vec3 axis : bAxes){
-                float d = axis.dot(m.normal);
-                if(d < bestDot){ bestDot = d; incAxis = axis; }
+            for(int bi = 0; bi < 3; bi++){
+                float d = bAxes[bi].dot(m.normal);
+                if(d < bestDot){ bestDot = d; incAxis = bAxes[bi]; incIdx = bi; }
             }
             float sign = Math.signum(incAxis.dot(m.normal));
-            Vec3 centerB = b.center.cpy().addScaled(incAxis, sign * b.halfExtents.y);
+            // P12: was always b.halfExtents.y — for X/Z incident faces the sampled contact
+            // patch floated inside/off the actual face and the manifold points got rejected
+            float incExt = incIdx == 0 ? b.halfExtents.x : (incIdx == 1 ? b.halfExtents.y : b.halfExtents.z);
+            Vec3 centerB = b.center.cpy().addScaled(incAxis, sign * incExt);
             Vec3 t1 = incAxis.cross(m.normal);
             if(t1.len2() < 1e-8f) t1.set(1, 0, 0);
             t1.norm();

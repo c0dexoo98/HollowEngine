@@ -23,6 +23,8 @@ public final class Log {
     private Log() {}
 
     public static void setSink(Sink s){ sink = s; }
+    /** current sink (may be the console default) — lets wrappers restore it on detach [R14] */
+    public static Sink sink(){ return sink; }
     public static void setLevel(Level l){ minLevel = l; }
     public static void setCapturing(boolean c){ capturing = c; }
     public static void clearCapture(){ CAPTURE.clear(); }

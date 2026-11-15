@@ -327,12 +327,14 @@ public final class BehaviorTree {
         }
         boolean anyPolicy = "any".equalsIgnoreCase(n.policy);
         if(anyPolicy){
-            if(anySuccess){ for(String c : n.children) resetSub(c); return SUCCESS; }
-            if(!anyRunning && fail == n.children.size()) return FAILURE;
+            // P6: clear the per-child terminal memory on EVERY terminal return — a stale
+            // p.order made the parallel node replay its last result forever on re-entry
+            if(anySuccess){ java.util.Arrays.fill(p.order, 0); for(String c : n.children) resetSub(c); return SUCCESS; }
+            if(!anyRunning && fail == n.children.size()){ java.util.Arrays.fill(p.order, 0); return FAILURE; }
             return RUNNING;
         }
-        if(anyFailure){ for(String c : n.children) resetSub(c); return FAILURE; }
-        if(!anyRunning && succ == n.children.size()) return SUCCESS;
+        if(anyFailure){ java.util.Arrays.fill(p.order, 0); for(String c : n.children) resetSub(c); return FAILURE; }
+        if(!anyRunning && succ == n.children.size()){ java.util.Arrays.fill(p.order, 0); return SUCCESS; }
         return RUNNING;
     }
 

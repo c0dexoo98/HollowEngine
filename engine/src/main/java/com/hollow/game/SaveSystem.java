@@ -56,6 +56,18 @@ public final class SaveSystem {
     public boolean load(int slot, World world){
         try {
             Map<String,Object> root = Json.parseObj(fs.readText(projectDir + "/saves/slot_" + slot + ".json"));
+            // N9: restore what save() actually wrote — "time" was silently dropped and a
+            // slot saved in another scene applied its states to same-named entities with no warning
+            if(GameApp.instance != null){
+                float t = (float)Json.num(root.get("time"), -1);
+                if(t >= 0) GameApp.instance.services().time.time = t;
+                String savedScene = Json.str(root.get("scene"), "");
+                String cur = GameApp.instance.currentScenePath;
+                if(!savedScene.isEmpty() && cur != null && !cur.isEmpty() && !savedScene.equals(cur)){
+                    Log.w("Save", "slot " + slot + " was saved in scene '" + savedScene
+                        + "' but current scene is '" + cur + "' — entity/player states may not match");
+                }
+            }
             // vars
             Map<String,Object> vars = Json.obj(root.get("vars"));
             if(vars != null && GameApp.instance != null) GameApp.instance.services().vars.restore(vars);

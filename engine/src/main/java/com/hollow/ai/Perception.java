@@ -25,6 +25,7 @@ public final class Perception extends Component {
     private PhysicsWorld physics;
     private com.hollow.script.EventBus events;
     private boolean listening = false;
+    private com.hollow.script.EventBus.Listener noiseListener = null;   // P8: kept for unlisten
 
     public Entity visibleTarget(){ return visibleTarget; }
     public boolean hasTarget(){ return visibleTarget != null; }
@@ -37,17 +38,28 @@ public final class Perception extends Component {
             events = svc.events;
             if(events != null && !listening){
                 listening = true;
-                events.listen("noise", (name, data) -> {
-                    if(data == null || entity == null) return;
+                noiseListener = (name, data) -> {
+                    if(data == null || entity == null || entity.destroyed) return;
                     Object pos = data.get("pos");
                     Object radius = data.get("radius");
                     float r = radius instanceof Number n ? n.floatValue() : hearingRange;
                     if(pos instanceof Vec3 p && entity.position.dist(p) <= r){
                         lastKnownTargetPos.set(p);
                     }
-                });
+                };
+                events.listen("noise", noiseListener);
             }
         }
+    }
+
+    /** P8: was missing — every attached enemy leaked its noise listener into the static
+     *  EventBus forever (per-entity memory leak + stale writes into dead components). */
+    @Override public void onDetach(){
+        if(listening && events != null && noiseListener != null){
+            events.unlisten("noise", noiseListener);
+        }
+        noiseListener = null;
+        listening = false;
     }
 
     private com.hollow.game.EngineServices services(){
