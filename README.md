@@ -1,8 +1,11 @@
-# HollowEngine 2.1 «play»
+# HollowEngine 2.2 «vale»
 
-موتور بازی‌سازی از صفر — زبان اسکریپت OOP به سبک GDScript، فیزیک، سایه، و ادیتوری با **حالت Play (F5)** که بازی را با کیبورد اجرا می‌کند. بدون وابستگی، خالص جاوا.
+موتور بازی‌سازی از صفر — زبان اسکریپت OOP به سبک GDScript، فیزیک، **چند-نور reach‌دار**، سایه، مه، **فونت HUD بیت‌مپ**، وینیت، و ادیتوری با **حالت Play (F5)** که بازی را با کیبورد اجرا می‌کند. بدون وابستگی، خالص جاوا.
 
-> v20 قدیمی روی برنچ `legacy-v20` است. 2.0 «genesis» در تاریخ گیت. **2.1 موتوری است که با آن می‌شود بازی ساخت — و یک بازی نمونه هم با آن ساخته شده** (`examples/game`).
+> 2.1 موتوری بود که با آن می‌شد بازی ساخت. **2.2 همان موتور با یک بازی واقعی روی آن است**:
+> [Hollow Vale](https://github.com/c0dexoo98/horror) — survival horror با کمپین ۷ مأموریتی که
+> باتِ قطعی خود بازی آن را سرتاسر تا `ENDING: ESCAPED` می‌بازد. قابلیت‌های این نسل
+> (چند-نور، reach، hud()، atan2، فونت، وینیت) از نیازهای همان بازی زاده شدند و همین‌جا تست دارند.
 
 ## ستون‌ها
 
@@ -10,7 +13,7 @@
 |---|---|---|
 | **زبان** | HollowScript — بلوک تورفتگی، **کلاس/extends/self/_init**، لیست/map، متد-کال، native objects، deterministic rand | `engine/src/com/hollow/script/` |
 | **فیزیک** | جاذبه، AABB با نیم‌اندازه = scale، resolve کمینه‌محور، restitution، بدنه‌های static/dynamic، رویداد `on_collision` | `engine/src/com/hollow/physics/` |
-| **رندرر** | rasterizer نرم: z-buffer، Lambert+Blinn، **سایهٔ planar روی صفحهٔ زمین**، **fog فاصله‌ای**، **ray picking**، PNG | `engine/src/com/hollow/render/` |
+| **رندرر** | rasterizer نرم: z-buffer، Lambert+Blinn، **تا ۴ نور به‌ازای مش با فالاف reach**، سایهٔ planar، fog، **وینیت**، **فونت بیت‌مپ HUD**، ray picking، PNG | `engine/src/com/hollow/render/` |
 | **ادیتور** | ۵ داک + **Undo/Redo (Ctrl+Z/Y)** + دوربین مداری (درگ) + zoom (چرخ موس) + **pick و دراگ گره در viewport** + **Play/Stop با ورودی کیبورد** | `editor/src/com/hollow/editor/` |
 | **CLI** | new / run (با فیزیک) / render / script / editor / selftest | `cli/src/com/hollow/cli/` |
 

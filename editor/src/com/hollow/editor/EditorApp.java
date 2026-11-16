@@ -129,7 +129,9 @@ public final class EditorApp extends JFrame {
         playTimer = new Timer(33, e -> {                 // ~30 fps simulated
             if(!model.isPlaying()) return;
             model.playTick(1.0 / 30);
-            viewport.setFrame(model.renderPreview(480, 270));
+            Frame f = model.renderPreview(480, 270);
+            com.hollow.render.Renderer.drawHud(f, model.playHud());
+            viewport.setFrame(f);
             refreshDocksOnly();
         });
 
@@ -151,7 +153,10 @@ public final class EditorApp extends JFrame {
         String[][] keys = {
             { "UP", "up" }, { "DOWN", "down" }, { "LEFT", "left" }, { "RIGHT", "right" },
             { "W", "up" }, { "S", "down" }, { "A", "left" }, { "D", "right" },
-            { "SPACE", "space" }
+            { "SPACE", "space" },
+            { "E", "use" }, { "F", "slash" }, { "G", "shoot" }, { "R", "reload" },
+            { "T", "torch" }, { "X", "flash" }, { "C", "sneak" }, { "V", "swap" },
+            { "Q", "run" }
         };
         for(String[] k : keys) bind(rp, k[0], () -> model.playInput(k[1]));
     }

@@ -7,19 +7,23 @@ import com.hollow.core.MathX.Vec3;
 public class LightNode extends Node {
     public String color = "white";
     public float intensity = 1.0f;
+    /** attenuation distance (0 = infinite, no falloff) */
+    public float reach = 0f;
     public LightNode(String name){ super(name); }
     @Override public String type(){ return "light"; }
     @Override public boolean hHas(String key){
-        return key.equals("color") || key.equals("intensity") || super.hHas(key);
+        return key.equals("color") || key.equals("intensity") || key.equals("reach") || super.hHas(key);
     }
     @Override public Object hGet(String key){
         if(key.equals("color")) return color;
         if(key.equals("intensity")) return (double)intensity;
+        if(key.equals("reach")) return (double)reach;
         return super.hGet(key);
     }
     @Override public void hSet(String key, Object v){
         if(key.equals("color")){ color = String.valueOf(v); return; }
         if(key.equals("intensity")){ intensity = (float)(double)(Double)v; return; }
+        if(key.equals("reach")){ reach = (float)(double)(Double)v; return; }
         super.hSet(key, v);
     }
     public Vec3 lightDir(){

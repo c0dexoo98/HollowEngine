@@ -16,6 +16,8 @@ public final class ScriptHost {
     public final Consumer<String> out;
     public final java.nio.file.Path baseDir;
     public double elapsed = 0;
+    /** HUD lines produced by scripts this frame (hud() builtin) */
+    public final java.util.List<String> hudLines = new java.util.ArrayList<>();
 
     public ScriptHost(Scene scene, Consumer<String> out){
         this(scene, out, java.nio.file.Path.of("."));
@@ -94,8 +96,10 @@ public final class ScriptHost {
 
     /** one game-frame entry point: physics → collisions → scripts.
      *  Scripts get on_collision(node, other, scene, axis) for each
-     *  new contact, then on_update(node, scene, delta). */
+     *  new contact, then on_update(node, scene, delta). HUD lines
+     *  accumulate during the frame via the hud() builtin. */
     public void stepWorld(double delta){
+        hudLines.clear();
         com.hollow.physics.Physics physics = new com.hollow.physics.Physics();
         java.util.List<com.hollow.physics.Physics.Collision> hits = physics.step(scene, delta);
         if(!hits.isEmpty()){
@@ -126,6 +130,7 @@ public final class ScriptHost {
         try {
             Interp interp = Interp.fromSource(Files.readString(resolve(sn.path)));
             interp.setOut(out);
+            interp.setHud(line -> hudLines.add(line));
             interp.runBody();
             cache.put(sn, interp);
             return interp;

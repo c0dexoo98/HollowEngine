@@ -79,6 +79,11 @@ public final class Interp {
     }
 
     public void setOut(Consumer<String> out){ this.out = out; }
+
+    /** optional HUD channel: scripts call hud("...") to put overlay text
+     *  on the next rendered frame (engine draws it with the bitmap font) */
+    public void setHud(Consumer<String> hud){ this.hud = hud; }
+    private Consumer<String> hud = null;
     public void setSeed(long s){
         seed = s;
         rng = new MathX.Rng(s);
@@ -546,6 +551,12 @@ public final class Interp {
                 rng = new MathX.Rng(seed);
                 return null;
             }
+            case "hud":
+                if(hud != null) hud.accept(strOf(arg(args, 0, "hud")));
+                return null;
+            case "atan2":
+                return Math.toDegrees(Math.atan2(asNum(arg(args, 0, "atan2"), line),
+                                                 asNum(arg(args, 1, "atan2"), line)));
             case "range": {
                 int lo = 0, hi, step = 1;
                 if(args.size() == 1) hi = (int)asNum(arg(args, 0, "range"), line);

@@ -17,13 +17,20 @@ public final class Rasterizer {
     public static final float SHADOW_DARKEN = 0.55f;
     static final float SHADOW_BIAS = 2e-3f;
 
-    /** lights: direction (pointing from sky toward ground), color, intensity */
+    /** lights: direction (pointing from sky toward ground), color, intensity,
+     *  origin (light node position) and reach (0 = infinite, no falloff) */
     public static final class Light {
         public final Vec3 dir;
         public final int color;
         public final float intensity;
+        public final Vec3 origin;
+        public final float reach;
         public Light(Vec3 dir, int color, float intensity){
+            this(dir, color, intensity, new Vec3(0, 0, 0), 0f);
+        }
+        public Light(Vec3 dir, int color, float intensity, Vec3 origin, float reach){
             this.dir = dir; this.color = color; this.intensity = intensity;
+            this.origin = origin; this.reach = reach;
         }
     }
 
@@ -31,12 +38,19 @@ public final class Rasterizer {
 
     public static void drawMesh(Frame f, Mesh mesh, Mat4 model, Mat4 view, Mat4 proj,
                                 Vec3 eye, Light light, int albedo, float ambient){
-        drawMesh(f, mesh, model, view, proj, eye, light, albedo, ambient, 0f, 0xFF000000);
+        drawMesh(f, mesh, model, view, proj, eye, java.util.List.of(light), albedo, ambient, 0f, 0xFF000000);
     }
 
-    /** full path with distance fog (fog 0..1, blended toward fogColor) */
     public static void drawMesh(Frame f, Mesh mesh, Mat4 model, Mat4 view, Mat4 proj,
                                 Vec3 eye, Light light, int albedo, float ambient,
+                                float fog, int fogColor){
+        drawMesh(f, mesh, model, view, proj, eye, java.util.List.of(light), albedo, ambient, fog, fogColor);
+    }
+
+    /** full path, multiple lights: albedo is tinted by every light's color,
+     *  specular comes from the strongest contributor. Deterministic order. */
+    public static void drawMesh(Frame f, Mesh mesh, Mat4 model, Mat4 view, Mat4 proj,
+                                Vec3 eye, java.util.List<Light> lights, int albedo, float ambient,
                                 float fog, int fogColor){
         int n = mesh.vertexCount();
         float[] wx = new float[n], wy = new float[n], wz = new float[n];
@@ -58,14 +72,27 @@ public final class Rasterizer {
         if(!visible) return;
 
         int[] al = new int[]{ (albedo >> 16) & 0xFF, (albedo >> 8) & 0xFF, albedo & 0xFF };
-        int[] lc = new int[]{ (light.color >> 16) & 0xFF, (light.color >> 8) & 0xFF, light.color & 0xFF };
+        int[][] lcs = new int[lights.size()][];
+        Vec3[] dirs = new Vec3[lights.size()];
+        float[] ints = new float[lights.size()];
+        Vec3[] origins = new Vec3[lights.size()];
+        float[] reaches = new float[lights.size()];
+        for(int i = 0; i < lights.size(); i++){
+            Light L = lights.get(i);
+            lcs[i] = new int[]{ (L.color >> 16) & 0xFF, (L.color >> 8) & 0xFF, L.color & 0xFF };
+            dirs[i] = L.dir;
+            ints[i] = L.intensity;
+            origins[i] = L.origin;
+            reaches[i] = L.reach;
+        }
         int[] fc = new int[]{ (fogColor >> 16) & 0xFF, (fogColor >> 8) & 0xFF, fogColor & 0xFF };
 
         for(int t = 0; t + 2 < mesh.idx.length; t += 3){
             int a = mesh.idx[t], b = mesh.idx[t + 1], c = mesh.idx[t + 2];
             if(Float.isNaN(sx[a]) || Float.isNaN(sx[b]) || Float.isNaN(sx[c])) continue;
             fillTriangle(f, sx[a], sy[a], sz[a], sx[b], sy[b], sz[b], sx[c], sy[c], sz[c],
-                         wx, wy, wz, dist, a, b, c, eye, light, al, lc, ambient, fc, fog);
+                         wx, wy, wz, dist, a, b, c, eye, dirs, lcs, ints, origins, reaches,
+                         al, ambient, fc, fog);
         }
     }
 
@@ -76,7 +103,8 @@ public final class Rasterizer {
                                      float cx, float cy, float cz,
                                      float[] wx, float[] wy, float[] wz, float[] dist,
                                      int ia, int ib, int ic,
-                                     Vec3 eye, Light light, int[] al, int[] lc,
+                                     Vec3 eye, Vec3[] dirs, int[][] lcs, float[] ints,
+                                     Vec3[] origins, float[] reaches, int[] al,
                                      float ambient, int[] fc, float fog){
         float minX = Math.max(0, (float)Math.floor(Math.min(ax, Math.min(bx, cx))));
         float maxX = Math.min(f.w - 1, (float)Math.ceil(Math.max(ax, Math.max(bx, cx))));
@@ -110,23 +138,49 @@ public final class Rasterizer {
                 Vec3 v = new Vec3(eye.x - wx[ia], eye.y - wy[ia], eye.z - wz[ia]).norm();
                 if(n.dot(v) < 0) n.scale(-1);
 
-                float shade = ambient + Math.max(0, n.dot(new Vec3(-light.dir.x, -light.dir.y, -light.dir.z))) * light.intensity;
-                // Blinn specular
-                Vec3 h = new Vec3(-light.dir.x + v.x, -light.dir.y + v.y, -light.dir.z + v.z).norm();
-                float spec = (float)Math.pow(Math.max(0, n.dot(h)), 32) * 0.45f * light.intensity;
-
-                int r = clampByte((int)(al[0] * shade + lc[0] * spec));
-                int g = clampByte((int)(al[1] * shade + lc[1] * spec));
-                int bl = clampByte((int)(al[2] * shade + lc[2] * spec));
+                // multi-light: diffuse accumulates per light (albedo tinted by
+                // the light's color, attenuated by reach); specular from the
+                // strongest contributor. Attenuation is per-triangle (centroid).
+                float tCx = (wx[ia] + wx[ib] + wx[ic]) / 3f;
+                float tCy = (wy[ia] + wy[ib] + wy[ic]) / 3f;
+                float tCz = (wz[ia] + wz[ib] + wz[ic]) / 3f;
+                float fr = al[0] * ambient, fg = al[1] * ambient, fb = al[2] * ambient;
+                float bestD = -1f; Vec3 bestDir = dirs.length > 0 ? dirs[0] : new Vec3(0, -1, 0);
+                float bestInt = 0; int[] bestCol = new int[]{ 0, 0, 0 };
+                for(int li = 0; li < dirs.length; li++){
+                    Vec3 dir = dirs[li];
+                    float d = Math.max(0, n.dot(new Vec3(-dir.x, -dir.y, -dir.z))) * ints[li];
+                    if(d <= 0) continue;
+                    if(reaches[li] > 0){
+                        float dx = tCx - origins[li].x, dy = tCy - origins[li].y, dz = tCz - origins[li].z;
+                        float distL = (float)Math.sqrt(dx * dx + dy * dy + dz * dz);
+                        d *= Math.max(0, Math.min(1, 1f - distL / reaches[li]));
+                        if(d <= 0) continue;
+                    }
+                    fr += al[0] * d * (lcs[li][0] / 255f);
+                    fg += al[1] * d * (lcs[li][1] / 255f);
+                    fb += al[2] * d * (lcs[li][2] / 255f);
+                    if(d > bestD){ bestD = d; bestDir = dir; bestInt = ints[li]; bestCol = lcs[li]; }
+                }
+                if(bestD > 0){
+                    Vec3 h = new Vec3(-bestDir.x + v.x, -bestDir.y + v.y, -bestDir.z + v.z).norm();
+                    float spec = (float)Math.pow(Math.max(0, n.dot(h)), 32) * 0.45f * bestInt;
+                    fr += bestCol[0] * spec;
+                    fg += bestCol[1] * spec;
+                    fb += bestCol[2] * spec;
+                }
+                int r = clampByte((int)fr);
+                int g = clampByte((int)fg);
+                int bl = clampByte((int)fb);
 
                 // distance fog toward the horizon color
                 if(fog > 0){
                     float d = w0 * dist[ia] + w1 * dist[ib] + w2 * dist[ic];
-                    float fb = fog * Math.max(0, Math.min(1, (d - FOG_NEAR) / (FOG_FAR - FOG_NEAR)));
-                    if(fb > 0){
-                        r = clampByte((int)(r + (fc[0] - r) * fb));
-                        g = clampByte((int)(g + (fc[1] - g) * fb));
-                        bl = clampByte((int)(bl + (fc[2] - bl) * fb));
+                    float fogB = fog * Math.max(0, Math.min(1, (d - FOG_NEAR) / (FOG_FAR - FOG_NEAR)));
+                    if(fogB > 0){
+                        r = clampByte((int)(r + (fc[0] - r) * fogB));
+                        g = clampByte((int)(g + (fc[1] - g) * fogB));
+                        bl = clampByte((int)(bl + (fc[2] - bl) * fogB));
                     }
                 }
 

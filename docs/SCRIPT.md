@@ -45,7 +45,9 @@ func add(a, b):          # تابع (سطح global، بدون closure)
 
 ## توابع داخلی
 
-`print` `len` `abs` `min` `max` `floor` `ceil` `round` `sqrt` `pow` `sin` `cos` `tan` `str` `num` `int` `upper` `lower` `rand` `srand` `range(a,b[,step])` `keys` `has` `append` `pop` `typeof`
+`print` `len` `abs` `min` `max` `floor` `ceil` `round` `sqrt` `pow` `sin` `cos` `tan` `atan2` `str` `num` `int` `upper` `lower` `rand` `srand` `range(a,b[,step])` `keys` `has` `append` `pop` `typeof` `hud`
+
+**`hud(text)`** متن overlay می‌سازد که رندرِ همان فریم با فونت بیت‌مپ روی آن می‌کشد (ScriptHost.hudLines؛ در hollow run هم چاپ می‌شود).
 
 **قطعیت:** `rand()` بدون seed از مسیر xorshift64* ثابت می‌گذرد؛ `srand(n)` آن را قفل می‌کند — دو اجرا خروجی یکسان می‌دهند (کل CI روی همین تکیه دارد).
 

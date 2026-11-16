@@ -28,6 +28,11 @@ public final class Renderer {
     }
 
     public Frame render(Scene scene, int w, int h){
+        return render(scene, w, h, null);
+    }
+
+    /** render + optional HUD overlay (bitmap font, drawn last, no depth) */
+    public Frame render(Scene scene, int w, int h, java.util.List<String> hud){
         Frame f = new Frame(w, h);
         int clear = Colors.parse(scene.clearColor);
         f.clear(clear);
@@ -46,7 +51,8 @@ public final class Renderer {
                 LightNode ln = (LightNode)n;
                 Mat4 wm = ln.worldMatrix();
                 Vec3 dir = wm.transformDir(ln.lightDir()).norm();
-                lights.add(new Rasterizer.Light(dir, Colors.parse(ln.color), ln.intensity));
+                lights.add(new Rasterizer.Light(dir, Colors.parse(ln.color), ln.intensity,
+                                                ln.worldPosition(), ln.reach));
             }
             if(n instanceof MeshNode && n.visible) meshNodes.add(n);
         });
@@ -57,7 +63,8 @@ public final class Renderer {
         for(Node n : meshNodes){
             MeshNode mn = (MeshNode)n;
             Mesh mesh = meshFor(mn.meshPath);
-            Rasterizer.drawMesh(f, mesh, n.worldMatrix(), view, proj, eye, light,
+            Rasterizer.drawMesh(f, mesh, n.worldMatrix(), view, proj, eye,
+                                pickLights(lights, n.worldPosition(), MAX_LIGHTS),
                                 Colors.parse(mn.color), scene.ambient, scene.fog, clear);
         }
 
@@ -71,7 +78,34 @@ public final class Renderer {
                 }
             }
         }
+
+        if(hud != null) drawHud(f, hud);
+        if(scene.vignette > 0) f.vignette(scene.vignette);
         return f;
+    }
+
+    /** HUD overlay: bitmap font with 1px shadow, max 6 lines, deterministic */
+    public static void drawHud(Frame f, java.util.List<String> hud){
+        int max = Math.min(hud.size(), 6);
+        for(int i = 0; i < max; i++){
+            f.drawString(hud.get(i), 9, 9 + i * 16, 0xFF000000, 2);   // shadow
+            f.drawString(hud.get(i), 8, 8 + i * 16, 0xFFFFFFFF, 2);
+        }
+    }
+
+    /** cap lights per mesh (perf) — nearest origin first, deterministic */
+    public static final int MAX_LIGHTS = 4;
+
+    public static java.util.List<Rasterizer.Light> pickLights(List<Rasterizer.Light> all, Vec3 center, int max){
+        if(all.size() <= max) return all;
+        List<Rasterizer.Light> sorted = new ArrayList<>(all);
+        sorted.sort((a, b) -> Float.compare(dist2(a, center), dist2(b, center)));
+        return sorted.subList(0, max);
+    }
+
+    private static float dist2(Rasterizer.Light L, Vec3 center){
+        float dx = L.origin.x - center.x, dy = L.origin.y - center.y, dz = L.origin.z - center.z;
+        return dx * dx + dy * dy + dz * dz;
     }
 
     /** nearest mesh under a viewport pixel — editor picking */

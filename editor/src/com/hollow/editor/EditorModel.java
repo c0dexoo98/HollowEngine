@@ -224,6 +224,7 @@ public final class EditorModel {
                               if(n instanceof LightNode) ((LightNode)n).color = String.valueOf(value);
                               return true;
                 case "intensity": if(n instanceof LightNode) ((LightNode)n).intensity = (float)num(value); return true;
+                case "reach": if(n instanceof LightNode) ((LightNode)n).reach = (float)num(value); return true;
                 case "fov": if(n instanceof CameraNode) ((CameraNode)n).fov = (float)num(value); return true;
                 case "path": if(n instanceof ScriptNode) ((ScriptNode)n).path = String.valueOf(value); return true;
                 case "dynamic": n.dynamic = Boolean.parseBoolean(String.valueOf(value)); return true;
@@ -299,7 +300,8 @@ public final class EditorModel {
                 LightNode ln = (LightNode)n;
                 lights.add(new Rasterizer.Light(
                     n.worldMatrix().transformDir(ln.lightDir()).norm(),
-                    com.hollow.render.Colors.parse(ln.color), ln.intensity));
+                    com.hollow.render.Colors.parse(ln.color), ln.intensity,
+                    ln.worldPosition(), ln.reach));
             }
             if(n instanceof MeshNode && n.visible) meshes.add(n);
         });
@@ -309,7 +311,8 @@ public final class EditorModel {
         Renderer renderer = new Renderer(projectDir);
         for(Node n : meshes){
             MeshNode mn = (MeshNode)n;
-            Rasterizer.drawMesh(f, renderer.meshFor(mn.meshPath), n.worldMatrix(), view, proj, eye, light,
+            Rasterizer.drawMesh(f, renderer.meshFor(mn.meshPath), n.worldMatrix(), view, proj, eye,
+                                Renderer.pickLights(lights, n.worldPosition(), Renderer.MAX_LIGHTS),
                                 com.hollow.render.Colors.parse(mn.color), scene.ambient, scene.fog, clear);
         }
         if(scene.shadowPlaneY >= 0 && light.dir.y < -1e-4f){
@@ -361,6 +364,11 @@ public final class EditorModel {
     // ------------------------- play mode (F5) -------------------------
 
     public boolean isPlaying(){ return playing; }
+
+    /** HUD lines produced by scripts this play-frame (hud() builtin) */
+    public java.util.List<String> playHud(){
+        return playHost == null ? java.util.List.of() : playHost.hudLines;
+    }
 
     public void playStart(){
         if(playing) return;

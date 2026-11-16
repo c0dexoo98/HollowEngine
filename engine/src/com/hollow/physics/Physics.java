@@ -40,8 +40,10 @@ public final class Physics {
                 for(Node b : nodes){
                     if(b == a || b == scene.root || !b.visible) continue;
                     // solid bodies: meshes and plain nodes only —
-                    // cameras, lights and scripts have no physical volume
+                    // cameras, lights and scripts have no physical volume;
+                    // tiny props (< 0.45 units, pickable items) are not solid
                     if(!(b.type().equals("mesh") || b.type().equals("node"))) continue;
+                    if(Math.max(b.scale.x, Math.max(b.scale.y, b.scale.z)) < 0.45f) continue;
                     if(a.worldPosition().y < -500) continue;    // fell out of the world
                     Vec3 pa = a.position, pb = b.position;
                     float ax = a.scale.x, ay = a.scale.y, az = a.scale.z;

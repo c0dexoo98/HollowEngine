@@ -29,7 +29,7 @@ public final class Main {
                 case "script": exit(script(args)); break;
                 case "editor": exit(editor(args)); break;
                 case "selftest": exit(selftest()); break;
-                case "version": System.out.println("HollowEngine 2.1.0 'play'"); exit(0); break;
+                case "version": System.out.println("HollowEngine 2.2.0 'vale'"); exit(0); break;
                 case "help": help(); exit(0); break;
                 default:
                     System.out.println("unknown command '" + cmd + "' — try `hollow help`");
@@ -103,6 +103,10 @@ public final class Main {
             for(int i = 0; i < frames; i++) host.stepWorld(1.0 / 60);
             System.out.println("scene: " + s.name + "  scripts bound: " + bound + "  frames: " + frames);
             for(String line : out) System.out.println("  " + line);
+            if(!host.hudLines.isEmpty()){
+                System.out.println("hud:");
+                for(String line : host.hudLines) System.out.println("  " + line);
+            }
             return 0;
         } catch(Exception e){
             System.out.println("run failed: " + e.getMessage());
@@ -121,7 +125,7 @@ public final class Main {
             ScriptHost host = new ScriptHost(s, console::add, dir);
             host.start();
             for(int i = 0; i < frames; i++) host.stepWorld(1.0 / 60);
-            Frame f = new Renderer(dir).render(s, w, h);
+            Frame f = new Renderer(dir).render(s, w, h, host.hudLines);
             f.writePNG(out);
             System.out.println("wrote " + out + " (" + w + "x" + h + ", fill "
                                + Math.round(f.fillRatio() * 100) + "%, "
@@ -193,7 +197,7 @@ public final class Main {
     }
 
     private static void help(){
-        System.out.println("HollowEngine 2.1.0 'play'");
+        System.out.println("HollowEngine 2.2.0 'vale'");
         System.out.println("  hollow new <dir>            scaffold a project");
         System.out.println("  hollow run <dir> [--frames N]    run scripts headless");
         System.out.println("  hollow render <dir> [--frames N] [--out f.png] [--w 960 --h 540]");

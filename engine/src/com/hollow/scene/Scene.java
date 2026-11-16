@@ -22,6 +22,7 @@ public final class Scene implements Interp.Native {
     // render settings
     public float fog = 0f;                               // 0..1 distance fog strength
     public float shadowPlaneY = -1f;                     // <0 disables planar shadows
+    public float vignette = 0f;                          // 0..1 horror post-FX, darkened edges
 
     public Node createNode(String type, String node){
         String t = type == null ? "node" : type;
@@ -73,6 +74,7 @@ public final class Scene implements Interp.Native {
             case "gravity": return (double)gravity;
             case "fog": return (double)fog;
             case "shadow_plane_y": return (double)shadowPlaneY;
+            case "vignette": return (double)vignette;
             default: return null;
         }
     }
@@ -84,6 +86,7 @@ public final class Scene implements Interp.Native {
             case "gravity": gravity = (float)(double)(Double)v; return;
             case "fog": fog = (float)(double)(Double)v; return;
             case "shadow_plane_y": shadowPlaneY = (float)(double)(Double)v; return;
+            case "vignette": vignette = (float)(double)(Double)v; return;
             default: throw new IllegalStateException("scene has no property '" + key + "'");
         }
     }
@@ -121,7 +124,8 @@ public final class Scene implements Interp.Native {
     public String save(){
         JsonW w = new JsonW();
         w.obj().kv("hscene", 2).kv("name", name).kv("clear_color", clearColor).kv("ambient", ambient)
-          .kv("gravity", (double)gravity).kv("fog", (double)fog).kv("shadow_plane_y", (double)shadowPlaneY);
+          .kv("gravity", (double)gravity).kv("fog", (double)fog).kv("shadow_plane_y", (double)shadowPlaneY)
+          .kv("vignette", (double)vignette);
         w.obj("root");
         writeNodeBody(w, root);
         w.endObj();
@@ -149,7 +153,7 @@ public final class Scene implements Interp.Native {
             CameraNode c = (CameraNode)n;
             w.kv("fov", (double)c.fov).kv("near", (double)c.near).kv("far", (double)c.far).kv("active", c.active);
         }
-        if(n instanceof LightNode) w.kv("color", ((LightNode)n).color).kv("intensity", (double)((LightNode)n).intensity);
+        if(n instanceof LightNode) w.kv("color", ((LightNode)n).color).kv("intensity", (double)((LightNode)n).intensity).kv("reach", (double)((LightNode)n).reach);
         if(n instanceof ScriptNode) w.kv("path", ((ScriptNode)n).path);
         w.arr("children");
         for(Node c : n.children) writeNode(w, c);
@@ -164,6 +168,7 @@ public final class Scene implements Interp.Native {
         gravity = (float)Json.num(m.get("gravity"), 9.8f);
         fog = (float)Json.num(m.get("fog"), 0f);
         shadowPlaneY = (float)Json.num(m.get("shadow_plane_y"), -1f);
+        vignette = (float)Json.num(m.get("vignette"), 0f);
         Map<String,Object> rm = Json.obj(m.get("root"));
         if(rm == null) return;
         Node r = readNode(rm);
@@ -212,6 +217,7 @@ public final class Scene implements Interp.Native {
         if(n instanceof LightNode){
             ((LightNode)n).color = Json.str(m.get("color"), "white");
             ((LightNode)n).intensity = (float)Json.num(m.get("intensity"), 1.0f);
+            ((LightNode)n).reach = (float)Json.num(m.get("reach"), 0f);
         }
         if(n instanceof ScriptNode) ((ScriptNode)n).path = Json.str(m.get("path"), "");
         List<Object> kids = Json.arr(m.get("children"));

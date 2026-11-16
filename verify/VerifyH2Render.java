@@ -27,9 +27,93 @@ public class VerifyH2Render {
         mesh();
         raster();
         scene();
+        fx();
         System.out.println(fails == 0 ? "\nALL " + total + " RENDER TESTS PASSED"
                                       : "\n" + fails + " OF " + total + " RENDER TEST(S) FAILED");
         System.exit(fails == 0 ? 0 : 1);
+    }
+
+    /** 2.1 features: bitmap font HUD, vignette, multi-light + reach, hud channel */
+    static void fx(){
+        // bitmap font draws opaque pixels
+        Frame f = new Frame(200, 60);
+        int bg = 0xFF101010;
+        f.clear(bg);
+        f.drawString("HOLLOW VALE 3:00", 5, 5, 0xFFFFFF00, 2);
+        int lit = 0;
+        for(int p : f.pixels) if(p != bg) lit++;
+        check("fx: bitmap font", lit > 300, "" + lit);
+        f.clear(bg);
+        f.drawString("lowercase ok", 4, 4, 0xFFFFFFFF, 1);
+        check("fx: string width math", f.stringWidth("lowercase ok", 1) == 12 * 6, "");
+        // glyph orientation: '1' row 0 = 0b00100 → only the center column lit
+        f.clear(bg);
+        f.drawString("1", 10, 10, 0xFFFFFFFF, 1);
+        int rowLit = 0;
+        for(int x = 10; x < 15; x++) if(f.pixels[10 * f.w + x] != bg) rowLit++;
+        check("fx: glyph bit order", rowLit == 1 && f.pixels[10 * f.w + 12] != bg, "lit=" + rowLit);
+
+        // vignette: corner darker than center
+        Frame v = new Frame(120, 120);
+        v.clear(0xFF808080);
+        v.vignette(0.9f);
+        check("fx: vignette darkens edges", v.pixels[5 * 120 + 5] < v.pixels[60 * 120 + 60], "");
+
+        // multi-light: red light adds warmth to the white base
+        Frame m1 = new Frame(80, 80); m1.clear(0);
+        Frame m2 = new Frame(80, 80); m2.clear(0);
+        Mesh quad = Mesh.fromObj("v -10 -5 -20\nv 10 -5 -20\nv 10 5 -20\nv -10 5 -20\nf 1 2 3 4\n");
+        Mat4 view = new Mat4().identity();
+        Mat4 proj = new Mat4().identity().perspective(60, 1, 0.1f, 100f);
+        Vec3 eye = new Vec3(0, 0, 0);
+        Rasterizer.Light white = new Rasterizer.Light(new Vec3(0, 0, -1), 0xFFFFFF, 0.8f);
+        Rasterizer.Light red = new Rasterizer.Light(new Vec3(0, 0, -1), 0xFF2020, 0.8f,
+                                                    new Vec3(0, 0, 0), 30f);
+        Rasterizer.drawMesh(m1, quad, new Mat4().identity(), view, proj, eye, white, 0x808080, 0.1f, 0, 0);
+        Rasterizer.drawMesh(m2, quad, new Mat4().identity(), view, proj, eye,
+                            java.util.List.of(white, red), 0x808080, 0.1f, 0, 0);
+        int p1 = m1.pixels[40 * 80 + 40], p2 = m2.pixels[40 * 80 + 40];
+        check("fx: second light warms the surface", ((p2 >> 16) & 0xFF) > ((p1 >> 16) & 0xFF),
+              Integer.toHexString(p1) + "/" + Integer.toHexString(p2));
+
+        // reach falloff: a light with reach 3 does not tint a quad 20 units away
+        Frame m3 = new Frame(80, 80); m3.clear(0);
+        Rasterizer.Light tiny = new Rasterizer.Light(new Vec3(0, 0, -1), 0xFF2020, 0.8f,
+                                                     new Vec3(0, 0, 0), 3f);
+        Rasterizer.drawMesh(m3, quad, new Mat4().identity(), view, proj, eye,
+                            java.util.List.of(tiny), 0x808080, 0.1f, 0, 0);
+        int p3 = m3.pixels[40 * 80 + 40];
+        check("fx: reach falloff attenuates", ((p3 >> 16) & 0xFF) == ((p3 >> 8) & 0xFF), Integer.toHexString(p3));
+
+        // scene-level: hud overlay drawn on top of the render
+        Scene s = new Scene();
+        MeshNode hero = (MeshNode)s.createNode("mesh", "hero");
+        s.add(hero);
+        CameraNode cam = (CameraNode)s.createNode("camera", "cam");
+        cam.position.set(0, 0, 6);
+        s.add(cam);
+        java.util.List<String> hud = java.util.List.of("SANITY 87%", "M1: FIND THE NOTE");
+        Frame fh = new Renderer(Path.of(".")).render(s, 320, 180, hud);
+        Frame fn = new Renderer(Path.of(".")).render(s, 320, 180, null);
+        check("fx: hud overlay renders", fh.fillRatio() > fn.fillRatio(), "");
+
+        // hud() builtin reaches ScriptHost.hudLines through stepWorld
+        try {
+            Path dir = Files.createTempDirectory("h2hud");
+            Files.writeString(dir.resolve("h.hs"),
+                "func on_update(node, scene, delta):\n    hud(\"HP 100\")\n");
+            Scene s2 = new Scene();
+            com.hollow.scene.ScriptNode sn = (com.hollow.scene.ScriptNode)s2.createNode("script", "h");
+            sn.path = "h.hs";
+            s2.add(sn);
+            com.hollow.scene.ScriptHost host = new com.hollow.scene.ScriptHost(s2, m -> {}, dir);
+            host.start();
+            host.stepWorld(1.0 / 60);
+            check("fx: hud() builtin flows to host", host.hudLines.size() == 1 && "HP 100".equals(host.hudLines.get(0)),
+                  "" + host.hudLines);
+        } catch(Exception e){
+            check("fx: hud() builtin flows to host", false, e.toString());
+        }
     }
 
     static void colors(){
