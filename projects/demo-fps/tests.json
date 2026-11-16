@@ -1,7 +1,0 @@
-[
-  { "type": "entity_exists", "name": "Gatekeeper" },
-  { "type": "entity_exists", "name": "Player" },
-  { "type": "entity_count_at_least", "value": 12 },
-  { "type": "colliders_at_least", "value": 6 },
-  { "type": "no_error_logs" }
-]

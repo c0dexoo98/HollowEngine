@@ -1,9 +1,0 @@
-{
-  "name": "locomotion",
-  "axis1": { "name": "speed", "min": 0, "max": 6 },
-  "samples": [
-    { "x": 0, "clip": "idle" },
-    { "x": 3, "clip": "walk" },
-    { "x": 6, "clip": "run" }
-  ]
-}

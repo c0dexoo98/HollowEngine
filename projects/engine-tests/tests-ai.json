@@ -1,5 +1,0 @@
-[
-  { "type": "no_error_logs" },
-  { "type": "eqs_found", "query": "cover" },
-  { "type": "entity_count_at_least", "value": 5 }
-]

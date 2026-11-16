@@ -1,8 +1,0 @@
-{
-  "generator": { "type": "circle", "radius": 6.0, "spacing": 1.0 },
-  "tests": [
-    { "kind": "unblocked" },
-    { "kind": "toward_target", "weight": 1.0 },
-    { "kind": "random", "weight": 0.3 }
-  ]
-}

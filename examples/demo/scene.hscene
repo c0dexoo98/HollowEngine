@@ -1,0 +1,17 @@
+{
+  "hscene": 2,
+  "name": "demo",
+  "clear_color": "sky",
+  "ambient": 0.35,
+  "root": {
+    "name": "root", "type": "node",
+    "position": [0, 0, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1], "visible": true,
+    "children": [
+      { "name": "hero", "type": "mesh", "position": [0, 0.5, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1], "visible": true, "mesh": "cube.obj", "color": "gold", "children": [] },
+      { "name": "ground", "type": "mesh", "position": [0, -1.05, 0], "rotation": [0, 0, 0], "scale": [12, 0.1, 12], "visible": true, "mesh": "cube.obj", "color": "grass", "children": [] },
+      { "name": "camera", "type": "camera", "position": [0, 2.2, 7], "rotation": [-16, 0, 0], "scale": [1, 1, 1], "visible": true, "fov": 60, "near": 0.1, "far": 500, "active": true, "children": [] },
+      { "name": "sun", "type": "light", "position": [0, 0, 0], "rotation": [-35, 25, 0], "scale": [1, 1, 1], "visible": true, "color": "white", "intensity": 1.0, "children": [] },
+      { "name": "controls", "type": "script", "position": [0, 0, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1], "visible": true, "path": "player.hs", "children": [] }
+    ]
+  }
+}
