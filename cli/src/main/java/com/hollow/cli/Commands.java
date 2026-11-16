@@ -5173,6 +5173,116 @@ public final class Commands {
             pass("v18 pages + FIX18-001");
         } catch(Throwable t){ fail("v18-fxb-fr", t); failures++; }
 
+        // --- v19.0.0 systems: wool staple / bleach field / wash house / mill pond / shearer / spinner / loom / dyer + FIX19-001 ---
+        try {
+            com.hollow.world.WoolStapleSystem fair = null, damp = null;
+            for(int s = 1; s <= 400 && (fair == null || damp == null); s++){
+                com.hollow.world.WoolStapleSystem probe = new com.hollow.world.WoolStapleSystem();
+                probe.seed = s;
+                probe.open("byram");
+                probe.receive("byram", 2);
+                probe.tickDay();
+                probe.sell("byram", 2);
+                if(probe.staple("byram").gross == 80 && probe.staple("byram").sold == 2
+                   && probe.staple("byram").bales == 0) fair = probe;
+                if(probe.staple("byram").gross == 72 && probe.staple("byram").sold == 2
+                   && probe.staple("byram").bales == 0) damp = probe;
+            }
+            if(fair == null || damp == null) throw new AssertionError("wool staple prices");
+
+            com.hollow.world.BleachFieldSystem blch = null;
+            for(int s = 1; s <= 400 && blch == null; s++){
+                com.hollow.world.BleachFieldSystem probe = new com.hollow.world.BleachFieldSystem();
+                probe.seed = s;
+                probe.stake("ashvale");
+                probe.lay("ashvale", 4);
+                probe.tickDay(); probe.tickDay(); probe.tickDay();
+                if(probe.field("ashvale").bleached == 4 && probe.field("ashvale").sunDays == 0
+                   && probe.field("ashvale").rains == 0) blch = probe;
+            }
+            if(blch == null) throw new AssertionError("bleach field batch");
+            pass("v19 staples + bleach fields");
+        } catch(Throwable t){ fail("v19-stap-blch", t); failures++; }
+
+        try {
+            com.hollow.world.WashHouseSystem wash = null;
+            for(int s = 1; s <= 400 && wash == null; s++){
+                com.hollow.world.WashHouseSystem probe = new com.hollow.world.WashHouseSystem();
+                probe.seed = s;
+                probe.build("ashvale");
+                probe.bring("ashvale", 6);
+                probe.tickDay(); probe.tickDay();
+                if(probe.trough("ashvale").washed == 6 && probe.trough("ashvale").lanolin == 2
+                   && probe.trough("ashvale").spoil == 0) wash = probe;
+            }
+            if(wash == null) throw new AssertionError("wash house clean run");
+
+            com.hollow.world.MillPondSystem pond = new com.hollow.world.MillPondSystem();
+            pond.dig("oakford");
+            pond.fill("oakford"); pond.fill("oakford");
+            pond.tickDay();
+            if(pond.pond("oakford").wheelTurns != 3 || pond.pond("oakford").depthInches != 4)
+                throw new AssertionError("mill pond wheel");
+            com.hollow.world.MillPondSystem leaky = null;
+            for(int s = 1; s <= 400 && leaky == null; s++){
+                com.hollow.world.MillPondSystem probe = new com.hollow.world.MillPondSystem();
+                probe.seed = s;
+                probe.dig("oakford");
+                probe.fill("oakford"); probe.fill("oakford"); probe.fill("oakford");
+                probe.tickDay();
+                if(probe.pond("oakford").drains == 1 && probe.pond("oakford").depthInches == 6) leaky = probe;
+            }
+            if(leaky == null) throw new AssertionError("mill pond leak");
+            pass("v19 wash houses + mill ponds");
+        } catch(Throwable t){ fail("v19-wash-pond", t); failures++; }
+
+        try {
+            com.hollow.game.ShearerSystem shr = new com.hollow.game.ShearerSystem();
+            shr.book("ewe-7");
+            shr.tickDay();
+            if(shr.job(1) == null || !shr.job(1).done
+               || !((shr.fleeces == 3 && !shr.job(1).nicked)
+                    || (shr.fleeces == 1 && shr.job(1).nicked)))
+                throw new AssertionError("shearer");
+
+            com.hollow.game.SpinnerSystem spn = new com.hollow.game.SpinnerSystem();
+            spn.deliverFleeces(4);
+            spn.spin("coarse");
+            spn.tickDay(); spn.tickDay();
+            if(spn.batch(1) == null || !spn.batch(1).done || spn.fleeces != 2
+               || !(spn.skeins == 5 ^ spn.skeins == 2)) throw new AssertionError("spinner");
+            com.hollow.game.SpinnerSystem spn2 = new com.hollow.game.SpinnerSystem();
+            spn2.load(spn.save());
+            com.hollow.game.SpinnerSystem.Batch b2 = spn2.spin("wool");   // saved fleeces 2
+            if(b2 == null || b2.id != 2 || spn2.fleeces != 0) throw new AssertionError("spinner id continuity");
+            pass("v19 shears + wheels");
+        } catch(Throwable t){ fail("v19-shr-spn", t); failures++; }
+
+        try {
+            // FIX19-001: empty names refused at the auction house
+            com.hollow.game.AuctionSystem au = new com.hollow.game.AuctionSystem();
+            com.hollow.game.AuctionSystem.Listing l = au.list("iron sword", 1, 50, "smith", 3);
+            if(au.list("sword", 1, 50, "", 3) != null || au.bid(l.id, "", 60))
+                throw new AssertionError("auction empty-name guards");
+            if(l.topBid != 0 || !l.topBidder.isEmpty())
+                throw new AssertionError("auction untouched by empty bid");
+
+            com.hollow.game.LoomSystem lm = new com.hollow.game.LoomSystem();
+            lm.deliverSkeins(10);
+            lm.weave("madder red");
+            lm.tickDay(); lm.tickDay(); lm.tickDay();
+            if(lm.run(1) == null || !lm.run(1).done || lm.skeins != 5
+               || !(lm.ells == 2 ^ lm.ells == 1)) throw new AssertionError("loom");
+
+            com.hollow.game.DyerSystem dy = new com.hollow.game.DyerSystem();
+            dy.deliverElls(2);
+            dy.dip("woad blue");
+            dy.tickDay(); dy.tickDay();
+            if(dy.vat(1) == null || !dy.vat(1).done || dy.ells != 1
+               || !(dy.vat(1).trueShade ^ dy.vat(1).muddy)) throw new AssertionError("dyer");
+            pass("v19 looms, vats + FIX19-001");
+        } catch(Throwable t){ fail("v19-loom-dyr-fx", t); failures++; }
+
         return failures;
     }
 

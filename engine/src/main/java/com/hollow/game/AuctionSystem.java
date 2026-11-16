@@ -45,7 +45,8 @@ public final class AuctionSystem {
     private int nextId = 1;
 
     public Listing list(String item, int qty, int reserve, String seller, int durationDays){
-        if(item == null || item.isEmpty() || qty <= 0 || reserve <= 0 || seller == null) return null;
+        if(item == null || item.isEmpty() || qty <= 0 || reserve <= 0
+           || seller == null || seller.isEmpty()) return null;
         Listing l = new Listing(nextId++, item, qty, reserve, seller, day + Math.max(1, durationDays));
         listings.put(l.id, l);
         if(listener != null) listener.onAuctionEvent("listed", l.id, item);
@@ -59,7 +60,7 @@ public final class AuctionSystem {
     public boolean bid(int listingId, String bidder, int amount){
         Listing l = listings.get(listingId);
         if(l == null || l.state != State.OPEN || day > l.expiresDay) return false;
-        if(bidder == null || bidder.equals(l.seller)) return false;
+        if(bidder == null || bidder.isEmpty() || bidder.equals(l.seller)) return false;
         if(amount < l.reserve) return false;
         if(!l.topBidder.isEmpty() && amount < l.topBid + minIncrement) return false;
         l.topBidder = bidder;
