@@ -4696,6 +4696,101 @@ public final class Commands {
             pass("v13 leather + hospice");
         } catch(Throwable t){ fail("v13-tan-heal", t); failures++; }
 
+        // --- v14.0.0 systems: watchtower / puppeteer / falconry / glassblower / icehouse / cartographer / candlemaker / dredge ---
+        try {
+            com.hollow.world.WatchtowerSystem sig = null;
+            for(int s = 1; s <= 400 && sig == null; s++){
+                com.hollow.world.WatchtowerSystem probe = new com.hollow.world.WatchtowerSystem();
+                probe.seed = s;
+                probe.raise("oak");
+                probe.light("oak", true);
+                probe.tickDay();
+                if(probe.tower("oak").signals == 1 && probe.tower("oak").fogNights == 0) sig = probe;
+            }
+            if(sig == null) throw new AssertionError("watchtower signal");
+
+            com.hollow.game.PuppeteerSystem ps = new com.hollow.game.PuppeteerSystem();
+            ps.commission("fox", 3);
+            ps.commission("geese", 5);
+            ps.tickDay(); ps.tickDay(); ps.tickDay();
+            if(!ps.play(1).ready() || ps.play(1).daysRehearsed != 3 || ps.play(2).ready())
+                throw new AssertionError("puppeteer rehearsal");
+            com.hollow.game.PuppeteerSystem ps2 = new com.hollow.game.PuppeteerSystem();
+            ps2.load(ps.save());
+            com.hollow.game.PuppeteerSystem.Play owls = ps2.commission("owls", 1);
+            if(owls == null || owls.id != 3) throw new AssertionError("puppeteer id continuity");
+            pass("v14 beacons + stage");
+        } catch(Throwable t){ fail("v14-bcn-ppp", t); failures++; }
+
+        try {
+            com.hollow.world.FalconrySystem kill = null;
+            for(int s = 1; s <= 400 && kill == null; s++){
+                com.hollow.world.FalconrySystem probe = new com.hollow.world.FalconrySystem();
+                probe.seed = s;
+                probe.open("oak");
+                probe.stock("oak", 3);
+                probe.tickDay();
+                if(probe.mew("oak").quarry == 1 && probe.mew("oak").falcons == 3) kill = probe;
+            }
+            if(kill == null) throw new AssertionError("falconry quarry");
+
+            com.hollow.game.GlassblowerSystem gs = new com.hollow.game.GlassblowerSystem();
+            gs.deliverSand(4);
+            gs.blow("vase", 2);
+            gs.tickDay(); gs.tickDay();
+            if(gs.batch(1) == null || !gs.batch(1).done || gs.sand != 3) throw new AssertionError("glassblower kiln");
+            com.hollow.game.GlassblowerSystem gs2 = new com.hollow.game.GlassblowerSystem();
+            gs2.load(gs.save());
+            if(gs2.blow("bowl", 1) == null || gs2.sand != 2) throw new AssertionError("glassblower id continuity");
+            pass("v14 mews + kilns");
+        } catch(Throwable t){ fail("v14-mlw-gls", t); failures++; }
+
+        try {
+            com.hollow.world.IcehouseSystem is = new com.hollow.world.IcehouseSystem();
+            is.build("oak");
+            is.cutIce("oak", 10);
+            is.tickDay(); is.tickDay(); is.tickDay();
+            if(is.house("oak").ice != 7 || is.house("oak").melted != 3) throw new AssertionError("ice melt");
+
+            com.hollow.game.CartographerSystem good = null;
+            for(int s = 1; s <= 400 && good == null; s++){
+                com.hollow.game.CartographerSystem probe = new com.hollow.game.CartographerSystem();
+                probe.seed = s;
+                probe.commission("moor", 1);
+                probe.tickDay();
+                if(probe.survey(1) != null && probe.survey(1).drawn && probe.survey(1).accurate) good = probe;
+            }
+            if(good == null || good.accurateCount() != 1) throw new AssertionError("cartographer accuracy");
+            pass("v14 ice + quills");
+        } catch(Throwable t){ fail("v14-ice-crt", t); failures++; }
+
+        try {
+            com.hollow.game.CandlemakerSystem ck = null;
+            for(int s = 1; s <= 400 && ck == null; s++){
+                com.hollow.game.CandlemakerSystem probe = new com.hollow.game.CandlemakerSystem();
+                probe.seed = s;
+                probe.deliverWax("oak", 30);
+                probe.tickDay();
+                if(probe.sootOf("oak") == 0 && probe.candlesOf("oak") == 40 && probe.waxOf("oak") == 10) ck = probe;
+            }
+            if(ck == null) throw new AssertionError("candlemaker dip");
+            ck.tickDay();
+            if(ck.candlesOf("oak") != 60 || ck.waxOf("oak") != 0) throw new AssertionError("candlemaker dry");
+
+            com.hollow.world.DredgeSystem hold = null;
+            for(int s = 1; s <= 400 && hold == null; s++){
+                com.hollow.world.DredgeSystem probe = new com.hollow.world.DredgeSystem();
+                probe.seed = s;
+                probe.charter("oak");
+                probe.assignCrews("oak", 2);
+                probe.tickDay(); probe.tickDay();
+                if(probe.harbor("oak").storms == 0 && probe.harbor("oak").depth == 12
+                   && probe.harbor("oak").dredged == 2) hold = probe;
+            }
+            if(hold == null) throw new AssertionError("dredge crews");
+            pass("v14 racks + channels");
+        } catch(Throwable t){ fail("v14-cdl-drg", t); failures++; }
+
         return failures;
     }
 
