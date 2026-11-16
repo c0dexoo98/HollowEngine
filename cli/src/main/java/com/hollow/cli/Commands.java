@@ -4969,6 +4969,102 @@ public final class Commands {
             pass("v16 cleaves + hoops");
         } catch(Throwable t){ fail("v16-lap-cpr", t); failures++; }
 
+        // --- v17.0.0 systems: charcoal burner / weir / peat cutting / hayward / stable / saddler / thatcher / clockmaker ---
+        try {
+            com.hollow.world.CharcoalBurnerSystem clean = null;
+            for(int s = 1; s <= 400 && clean == null; s++){
+                com.hollow.world.CharcoalBurnerSystem probe = new com.hollow.world.CharcoalBurnerSystem();
+                probe.seed = s;
+                probe.dig("oak");
+                probe.loadWood("oak", 12);
+                for(int t = 0; t < 3; t++) probe.tickDay();
+                if(probe.kiln("oak").clinker == 0 && probe.kiln("oak").charcoal == 6
+                   && probe.kiln("oak").wood == 0) clean = probe;
+            }
+            if(clean == null) throw new AssertionError("charcoal three clean burns");
+
+            com.hollow.world.WeirSystem wir = null;
+            for(int s = 1; s <= 400 && wir == null; s++){
+                com.hollow.world.WeirSystem probe = new com.hollow.world.WeirSystem();
+                probe.seed = s;
+                probe.stake("oak");
+                probe.setTraps("oak", 3);
+                probe.tickDay();
+                if(probe.weir("oak").totalCatch == 3 && probe.weir("oak").floods == 0) wir = probe;
+            }
+            if(wir == null) throw new AssertionError("weir full catch");
+            pass("v17 kilns + weirs");
+        } catch(Throwable t){ fail("v17-kil-wir", t); failures++; }
+
+        try {
+            com.hollow.world.PeatCuttingSystem sunny = null;
+            for(int s = 1; s <= 400 && sunny == null; s++){
+                com.hollow.world.PeatCuttingSystem probe = new com.hollow.world.PeatCuttingSystem();
+                probe.seed = s;
+                probe.open("oak");
+                probe.cut("oak", 10);
+                for(int t = 0; t < 4; t++) probe.tickDay();
+                if(probe.bank("oak").rainDelays == 0 && probe.bank("oak").dried == 10
+                   && probe.bank("oak").cutPeat == 0) sunny = probe;
+            }
+            if(sunny == null) throw new AssertionError("peat drying sun");
+
+            com.hollow.world.HaywardSystem hy = new com.hollow.world.HaywardSystem();
+            hy.appoint("oak");
+            hy.tickDay(); hy.tickDay(); hy.tickDay(); hy.tickDay();
+            if(hy.beat("oak") == null || hy.beat("oak").hedges != 3
+               || hy.beat("oak").roundsDone != 8 || hy.beat("oak").strays > 1)
+                throw new AssertionError("hayward hedge cap");
+            pass("v17 banks + hedges");
+        } catch(Throwable t){ fail("v17-pet-hyw", t); failures++; }
+
+        try {
+            com.hollow.game.StableSystem st = new com.hollow.game.StableSystem();
+            st.deliverOats(3);
+            st.train("bay");
+            st.tickDay(); st.tickDay(); st.tickDay();
+            if(st.horse(1) == null || !st.horse(1).trained || st.oats != 0
+               || st.horse(1).fedDays != 3
+               || !(st.horse(1).steady ^ st.horse(1).restive)) throw new AssertionError("stable training");
+            com.hollow.game.StableSystem starved = new com.hollow.game.StableSystem();
+            starved.deliverOats(2);
+            starved.train("roan");
+            starved.tickDay(); starved.tickDay(); starved.tickDay();
+            if(starved.horse(1).trained || starved.horse(1).daysInTraining != 2)
+                throw new AssertionError("empty manger stalls");
+
+            com.hollow.game.SaddlerSystem sd = new com.hollow.game.SaddlerSystem();
+            sd.deliverLeather(4);
+            sd.build("riding");
+            sd.tickDay(); sd.tickDay();
+            if(sd.saddle(1) == null || !sd.saddle(1).done || sd.leather != 2
+               || !(sd.saddle(1).fits ^ sd.saddle(1).pinches)) throw new AssertionError("saddler");
+            pass("v17 mangers + awls");
+        } catch(Throwable t){ fail("v17-stb-sad", t); failures++; }
+
+        try {
+            com.hollow.game.ThatcherSystem th = new com.hollow.game.ThatcherSystem();
+            th.deliverStraw(6);
+            th.thatch("mill");
+            th.tickDay(); th.tickDay();
+            if(th.roof(1) == null || !th.roof(1).done || th.straw != 3
+               || !(th.roof(1).watertight ^ th.roof(1).leaks)) throw new AssertionError("thatcher");
+
+            com.hollow.game.ClockmakerSystem ck = new com.hollow.game.ClockmakerSystem();
+            ck.deliverGears(8);
+            ck.assemble("regulator");
+            ck.tickDay(); ck.tickDay(); ck.tickDay();
+            if(ck.clock(1) == null || !ck.clock(1).done || ck.gears != 4
+               || !(ck.clock(1).keepsTrue ^ ck.clock(1).drifts)) throw new AssertionError("clockmaker");
+            com.hollow.game.ClockmakerSystem ck2 = new com.hollow.game.ClockmakerSystem();
+            ck2.load(ck.save());
+            // saved state: gears 4 (probe paid one build from 8), nextId 2
+            com.hollow.game.ClockmakerSystem.Clock c2 = ck2.assemble("minute");
+            if(c2 == null || c2.id != 2 || ck2.gears != 0 || ck2.assemble("extra") != null)
+                throw new AssertionError("clockmaker id continuity");
+            pass("v17 ladders + regulators");
+        } catch(Throwable t){ fail("v17-tha-clk", t); failures++; }
+
         return failures;
     }
 
