@@ -4877,6 +4877,98 @@ public final class Commands {
             pass("v15 keys + stalls");
         } catch(Throwable t){ fail("v15-key-toy", t); failures++; }
 
+        // --- v16.0.0 systems: lamplighter / night watch / harbourmaster / saltworks / wheelwright / ropemaker / lapidary / cooper ---
+        try {
+            com.hollow.world.LampLighterSystem clean = null;
+            for(int s = 1; s <= 400 && clean == null; s++){
+                com.hollow.world.LampLighterSystem probe = new com.hollow.world.LampLighterSystem();
+                probe.seed = s;
+                probe.open("oak");
+                probe.hang("oak", 4);
+                probe.deliverOil("oak", 5);
+                probe.tickDay(); probe.tickDay();
+                if(probe.round("oak").gutters == 0 && probe.round("oak").litNights == 5
+                   && probe.round("oak").darkNights == 3 && probe.round("oak").oil == 0) clean = probe;
+            }
+            if(clean == null) throw new AssertionError("lamplighter dusk round");
+
+            com.hollow.world.NightWatchSystem ns = new com.hollow.world.NightWatchSystem();
+            ns.enlist("oak");
+            ns.assignWatchmen("oak", 2);
+            ns.tickDay(); ns.tickDay();
+            if(ns.watch("oak") == null || ns.watch("oak").roundsDone != 4
+               || ns.watch("oak").quietNights + ns.watch("oak").incidents != 2)
+                throw new AssertionError("night watch rounds");
+            pass("v16 lamps + rounds");
+        } catch(Throwable t){ fail("v16-lmp-ntw", t); failures++; }
+
+        try {
+            com.hollow.world.HarbourmasterSystem berth = null;
+            for(int s = 1; s <= 400 && berth == null; s++){
+                com.hollow.world.HarbourmasterSystem probe = new com.hollow.world.HarbourmasterSystem();
+                probe.seed = s;
+                probe.charter("oak");
+                probe.setBerths("oak", 2);
+                probe.tickDay();
+                if(probe.port("oak").occupied == 1 && probe.port("oak").arrivals == 1
+                   && probe.port("oak").quarantined == 0) berth = probe;
+            }
+            if(berth == null || !berth.sail("oak") || berth.port("oak").occupied != 0)
+                throw new AssertionError("harbourmaster berth");
+
+            com.hollow.world.SaltworksSystem sunny = null;
+            for(int s = 1; s <= 400 && sunny == null; s++){
+                com.hollow.world.SaltworksSystem probe = new com.hollow.world.SaltworksSystem();
+                probe.seed = s;
+                probe.dig("oak");
+                probe.pump("oak", 11);
+                for(int t = 0; t < 6; t++) probe.tickDay();
+                if(probe.works("oak").rainDelays == 0 && probe.works("oak").brine == 0
+                   && probe.works("oak").salt == 5 && probe.works("oak").harvested == 5) sunny = probe;
+            }
+            if(sunny == null) throw new AssertionError("saltworks sun");
+            pass("v16 tides + pans");
+        } catch(Throwable t){ fail("v16-hbm-slt", t); failures++; }
+
+        try {
+            com.hollow.game.WheelwrightSystem ww = new com.hollow.game.WheelwrightSystem();
+            ww.deliverSpokes(8);
+            ww.build("cart");
+            ww.tickDay(); ww.tickDay();
+            if(ww.wheel(1) == null || !ww.wheel(1).done || ww.spokes != 4
+               || !(ww.wheel(1).trueRound ^ ww.wheel(1).wobbly)) throw new AssertionError("wheelwright");
+
+            com.hollow.game.RopemakerSystem rm = new com.hollow.game.RopemakerSystem();
+            rm.deliverHemp(4);
+            rm.lay("mooring");
+            rm.tickDay(); rm.tickDay(); rm.tickDay();
+            if(rm.coil(1) == null || !rm.coil(1).done || rm.hemp != 2
+               || !(rm.coil(1).holdsFast ^ rm.coil(1).frayed)) throw new AssertionError("ropemaker");
+            pass("v16 wheels + walks");
+        } catch(Throwable t){ fail("v16-whl-rop", t); failures++; }
+
+        try {
+            com.hollow.game.LapidarySystem lp = new com.hollow.game.LapidarySystem();
+            lp.deliverRough(3);
+            lp.cut("garnet");
+            lp.tickDay(); lp.tickDay();
+            if(lp.gem(1) == null || !lp.gem(1).done || lp.rough != 2
+               || !(lp.gem(1).brilliant ^ lp.gem(1).flawed)) throw new AssertionError("lapidary");
+
+            com.hollow.game.CooperSystem cp = new com.hollow.game.CooperSystem();
+            cp.deliverStaves(6);
+            cp.raise("ale");
+            cp.tickDay(); cp.tickDay();
+            if(cp.cask(1) == null || !cp.cask(1).done || cp.staves != 3
+               || !(cp.cask(1).tight ^ cp.cask(1).leaks)) throw new AssertionError("cooper");
+            com.hollow.game.CooperSystem cp2 = new com.hollow.game.CooperSystem();
+            cp2.load(cp.save());
+            com.hollow.game.CooperSystem.Cask c2 = cp2.raise("beer");
+            if(c2 == null || c2.id != 2 || cp2.staves != 0 || cp2.raise("more") != null)
+                throw new AssertionError("cooper id continuity");
+            pass("v16 cleaves + hoops");
+        } catch(Throwable t){ fail("v16-lap-cpr", t); failures++; }
+
         return failures;
     }
 

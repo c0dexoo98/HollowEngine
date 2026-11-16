@@ -64,7 +64,9 @@ public final class SurvivalSystem {
 
         // warmth: ambient cold drains it; heat above ~20 °C or a fire restores it; rain steals more
         float tempK = MathX.clamp((20f - ambientTemp) / 30f, -0.6f, 1.6f);   // -0.6 (hot) .. 1.6 (bitter cold)
-        float warmthDelta = (byFire ? -warmthPerSec * 1.8f : warmthPerSec * tempK) + (raining ? 0.35f : 0f);
+        float warmthDelta = byFire
+            ? -warmthPerSec * 1.8f                                  // a good fire wins over the weather
+            : warmthPerSec * tempK + (raining ? 0.35f : 0f);
         warmth = MathX.clamp(warmth - warmthDelta * dt, 0f, 100f);
 
         Effect now = currentEffect();
