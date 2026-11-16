@@ -5065,6 +5065,114 @@ public final class Commands {
             pass("v17 ladders + regulators");
         } catch(Throwable t){ fail("v17-tha-clk", t); failures++; }
 
+        // --- v18.0.0 systems: pinfold / tithe barn / hatchery / almshouse / tinker / papermaker / bookbinder / basket weaver + FIX18-001 ---
+        try {
+            com.hollow.world.PinfoldSystem clean = null;
+            for(int s = 1; s <= 400 && clean == null; s++){
+                com.hollow.world.PinfoldSystem probe = new com.hollow.world.PinfoldSystem();
+                probe.seed = s;
+                probe.build("oak");
+                probe.impound("oak", 2);
+                probe.tickDay();
+                if(probe.pound("oak").fines == 0 && probe.pound("oak").feedCosts == 1
+                   && probe.pound("oak").penned == 2) clean = probe;
+            }
+            if(clean == null) throw new AssertionError("pinfold feeding day");
+
+            com.hollow.world.TitheBarnSystem tit = null;
+            for(int s = 1; s <= 400 && tit == null; s++){
+                com.hollow.world.TitheBarnSystem probe = new com.hollow.world.TitheBarnSystem();
+                probe.seed = s;
+                probe.raise("elm");
+                probe.store("elm", 30);
+                for(int t = 0; t < 3; t++) probe.tickDay();
+                if(probe.barn("elm").tithed == 7 && probe.barn("elm").sheaves == 23
+                   && probe.barn("elm").mice == 0) tit = probe;
+            }
+            if(tit == null) throw new AssertionError("tithe barn tenth");
+            pass("v18 pounds + tithes");
+        } catch(Throwable t){ fail("v18-pin-tit", t); failures++; }
+
+        try {
+            com.hollow.world.HatcherySystem clean = null;
+            for(int s = 1; s <= 400 && clean == null; s++){
+                com.hollow.world.HatcherySystem probe = new com.hollow.world.HatcherySystem();
+                probe.seed = s;
+                probe.fill("oak");
+                probe.stock("oak", 6);
+                for(int t = 0; t < 3; t++) probe.tickDay();
+                if(probe.tank("oak").fry == 6 && probe.tank("oak").losses == 0
+                   && probe.tank("oak").eggs == 0) clean = probe;
+            }
+            if(clean == null) throw new AssertionError("hatchery clean pairs");
+
+            com.hollow.world.AlmshouseSystem sheltered = null;
+            for(int s = 1; s <= 400 && sheltered == null; s++){
+                com.hollow.world.AlmshouseSystem probe = new com.hollow.world.AlmshouseSystem();
+                probe.seed = s;
+                probe.found("oak");
+                probe.setBeds("oak", 3);
+                probe.tickDay(); probe.tickDay();
+                if(probe.house("oak").nights == 6 && probe.house("oak").alms == 0) sheltered = probe;
+            }
+            if(sheltered == null) throw new AssertionError("almshouse shelter ledger");
+            pass("v18 tanks + shelters");
+        } catch(Throwable t){ fail("v18-tank-alm", t); failures++; }
+
+        try {
+            com.hollow.game.TinkerSystem tk = new com.hollow.game.TinkerSystem();
+            tk.deliverParts(2);
+            tk.mend("kettle");
+            tk.tickDay(); tk.tickDay();
+            if(tk.repair(1) == null || !tk.repair(1).done || tk.parts != 1
+               || !(tk.repair(1).mended ^ tk.repair(1).beyond)) throw new AssertionError("tinker");
+            com.hollow.game.TinkerSystem tk2 = new com.hollow.game.TinkerSystem();
+            tk2.load(tk.save());
+            com.hollow.game.TinkerSystem.Repair r2 = tk2.mend("pan");   // saved parts 1
+            if(r2 == null || r2.id != 2 || tk2.parts != 0) throw new AssertionError("tinker id continuity");
+
+            com.hollow.game.PapermakerSystem pm = new com.hollow.game.PapermakerSystem();
+            pm.deliverRags(3);
+            pm.make("linen");
+            pm.tickDay(); pm.tickDay();
+            if(pm.batch(1) == null || !pm.batch(1).done || pm.rags != 0
+               || !(pm.quires == 4 ^ pm.quires == 1)) throw new AssertionError("papermaker");
+            pass("v18 tins + vats");
+        } catch(Throwable t){ fail("v18-tin-pap", t); failures++; }
+
+        try {
+            // FIX18-001: QuestSystem.progress guards
+            com.hollow.gameplay.QuestSystem qs = new com.hollow.gameplay.QuestSystem();
+            final int[] fired = {0};
+            qs.listeners.add((type, q) -> { if("objective".equals(type)) fired[0]++; });
+            com.hollow.gameplay.QuestSystem.Quest q = new com.hollow.gameplay.QuestSystem.Quest("q1", "Wolf cull");
+            qs.add(q);
+            q.objective("wolves", "Cull wolves", 3, (qq, o) -> o.progress);
+            qs.start("q1");
+            if(qs.progress("q1", "wolves", 0) || qs.progress("q1", "wolves", -2)
+               || qs.progress("q1", "ghosts", 1) || qs.progress("nope", "wolves", 1))
+                throw new AssertionError("progress guards refuse garbage");
+            qs.progress("q1", "wolves", 3);
+            qs.progress("q1", "wolves", 1);                             // no re-fire
+            if(fired[0] != 1 || !"completed".equals(qs.quest("q1").state))
+                throw new AssertionError("progress fires once, completes once");
+
+            com.hollow.game.BookbinderSystem bb = new com.hollow.game.BookbinderSystem();
+            bb.deliverQuires(2);
+            bb.bind("almanac");
+            bb.tickDay(); bb.tickDay(); bb.tickDay();
+            if(bb.book(1) == null || !bb.book(1).done || bb.quires != 0
+               || !(bb.book(1).sound ^ bb.book(1).loose)) throw new AssertionError("bookbinder");
+
+            com.hollow.game.BasketWeaverSystem bw = new com.hollow.game.BasketWeaverSystem();
+            bw.deliverOsiers(2);
+            bw.weave("creel");
+            bw.tickDay();
+            if(bw.basket(1) == null || !bw.basket(1).done || bw.osiers != 0
+               || !(bw.basket(1).tight ^ bw.basket(1).gappy)) throw new AssertionError("basket weaver");
+            pass("v18 pages + FIX18-001");
+        } catch(Throwable t){ fail("v18-fxb-fr", t); failures++; }
+
         return failures;
     }
 

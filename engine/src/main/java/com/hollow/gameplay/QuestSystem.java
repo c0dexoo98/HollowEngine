@@ -123,14 +123,18 @@ public final class QuestSystem {
         }
     }
 
-    /** manual progress bump (game layer counted the kill itself) */
+    /** manual progress bump (game layer counted the kill itself);
+     *  refuses zero/negative bumps (no rewinding an objective) and
+     *  fires the objective event exactly once — on the crossing tick */
     public boolean progress(String questId, String objectiveId, int amount){
         Quest q = quests.get(questId);
         if(q == null || !ACTIVE.equals(q.state)) return false;
         for(Objective o : q.objectives){
             if(o.id.equals(objectiveId)){
+                if(amount <= 0) return false;
+                int before = o.progress;
                 o.progress = Math.min(o.required, o.progress + amount);
-                if(o.isComplete()) fire("objective", q);
+                if(before < o.required && o.isComplete()) fire("objective", q);
                 if(q.allRequiredComplete()) complete(questId);
                 return true;
             }
