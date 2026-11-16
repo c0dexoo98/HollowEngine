@@ -1,73 +1,81 @@
-# HollowEngine 2 «genesis»
+# HollowEngine 2.1 «play»
 
-موتور بازی‌سازی از صفر — با **زبان اسکریپت** به سبک GDScript، **ادیتور داک‌محور** به سبک گودوت/آنریل و **رندرر سه‌بعدی واقعی** (بدون وابستگی، خالص جاوا).
+موتور بازی‌سازی از صفر — زبان اسکریپت OOP به سبک GDScript، فیزیک، سایه، و ادیتوری با **حالت Play (F5)** که بازی را با کیبورد اجرا می‌کند. بدون وابستگی، خالص جاوا.
 
-> نسخهٔ قبلی (v20، ۱۵۳ سیستم شبیه‌سازی) روی برنچ `legacy-v20` حفظ شده و با `git checkout legacy-v20` در دسترس است. این مخزن حالا موتور نسل دوم است: کوچک‌تر، واقعی‌تر، قابل‌اجرا.
+> v20 قدیمی روی برنچ `legacy-v20` است. 2.0 «genesis» در تاریخ گیت. **2.1 موتوری است که با آن می‌شود بازی ساخت — و یک بازی نمونه هم با آن ساخته شده** (`examples/game`).
 
-## سه ستون
+## ستون‌ها
 
 | ستون | چی هست | کجا |
 |---|---|---|
-| **زبان** | HollowScript — بلوک با تورفتگی، `func`، `var`، لیست/map، متد-کال، native objects، deterministic `rand` | `engine/src/com/hollow/script/` |
-| **ادیتور** | پنجرهٔ Swing با داک‌های Scene Tree / Viewport / Inspector / Console / Files — همهٔ عملیات از `EditorModel` می‌گذرد (هدلس‌تست‌پذیر) | `editor/src/com/hollow/editor/` |
-| **رندرر** | rasterizer نرم: model/view/projection، perspective divide، z-buffer، Lambert + Blinn specular، خروجی PNG — همان کد برای CLI و ادیتور و تست‌ها | `engine/src/com/hollow/render/` |
+| **زبان** | HollowScript — بلوک تورفتگی، **کلاس/extends/self/_init**، لیست/map، متد-کال، native objects، deterministic rand | `engine/src/com/hollow/script/` |
+| **فیزیک** | جاذبه، AABB با نیم‌اندازه = scale، resolve کمینه‌محور، restitution، بدنه‌های static/dynamic، رویداد `on_collision` | `engine/src/com/hollow/physics/` |
+| **رندرر** | rasterizer نرم: z-buffer، Lambert+Blinn، **سایهٔ planar روی صفحهٔ زمین**، **fog فاصله‌ای**، **ray picking**، PNG | `engine/src/com/hollow/render/` |
+| **ادیتور** | ۵ داک + **Undo/Redo (Ctrl+Z/Y)** + دوربین مداری (درگ) + zoom (چرخ موس) + **pick و دراگ گره در viewport** + **Play/Stop با ورودی کیبورد** | `editor/src/com/hollow/editor/` |
+| **CLI** | new / run (با فیزیک) / render / script / editor / selftest | `cli/src/com/hollow/cli/` |
 
 ## شروع سریع
 
 ```bash
-bash verify.sh                              # CI کامل — باید ALL GREEN بماند
-hollow new my-game                          # ساخت پروژه
-hollow render my-game                       # frame.png واقعی (960×540)
-hollow run my-game --frames 120             # اجرای هدلس اسکریپت‌ها
-hollow editor my-game                       # ادیتور گرافیکی (روی سیستم خودت، با نمایشگر)
+./hollow version                    # wrapper که خودش build می‌کند
+./hollow new my-game                # پروژهٔ جدید
+./hollow render my-game             # frame.png واقعی (با سایه اگر shadow_plane_y باشد)
+./hollow run my-game --frames 120   # اجرای هدلس: فیزیک + اسکریپت‌ها
+./hollow editor my-game             # ادیتور گرافیکی (روی سیستم خودت) → F5 برای Play
 ```
 
-(در مخزن: `java -cp build-out/cli:build-out/engine:build-out/editor com.hollow.cli.Main …` یا با build.sh مسیر `hollow` را بسازید.)
+## بازی نمونه — `examples/game`
 
-## یک بازی واقعی در ۱۵ خط — `player.hs`
+**Orb Runner**: بازیکن (dynamic body) با جاذبه روی زمین می‌ایستد، orb ها با `class Orb` spawn می‌شوند، برخورد AABB رویداد `on_collision` می‌دهد، امتیاز جمع می‌شود، خروجی قطعی است:
+
+```bash
+./hollow run examples/game --frames 300
+#   orb-runner: collect the orbs! ( 300  frames)
+#   collected orb_1 — score: 1  …
+#   FINAL SCORE: 6
+```
+
+در ادیتور: F5 → بازی با کلیدهای جهت/WASD قابل بازی است.
+
+## زبان در یک نگاه
 
 ```python
-var spin_speed = 90
+class Enemy:
+    var hp = 10
+    func _init(start):
+        self.hp = start
+    func hit(d):
+        self.hp = self.hp - d
+        return self.hp
 
-func on_start(node, scene):
-    print("demo ready")
+class Boss extends Enemy:
+    var armor = 2
+
+var b = Boss.new(50)
+b.hit(5)                     # ارث‌بری + override
 
 func on_update(node, scene, delta):
     var hero = scene.find("hero")
-    hero.rotation_y = hero.rotation_y + spin_speed * delta
+    hero.rotation_y = hero.rotation_y + 90 * delta
 
-func on_input(node, scene, key):
-    if key == "left":
-        hero = scene.find("hero")
-        hero.position_x = hero.position_x - 1
+func on_collision(node, scene, a, b, axis):
+    if b.name.contains("orb"):
+        scene.remove(b.name)
 ```
 
-کاملش در `examples/demo/` — هر دو دستور `run` و `render` روی آن سبز است.
-
-## معماری
-
-```
-engine/  core    Json (خواندن/نوشتن)، MathX (Vec3/Mat4/perspective/lookAt/Rng قطعی)
-         script  Lexer → Parser (AST) → Interp (محیط‌ها، builtins، Native surface)
-         scene   Node (ترنسفورم سلسله‌مراتبی) + MeshNode/CameraNode/LightNode/ScriptNode
-                 Scene (JSON .hscene) + ScriptHost (on_start/on_update/on_input)
-         render  Mesh (OBJ loader) + Rasterizer (z-buffer) + Frame (PNG) + Renderer
-editor/  EditorModel (حالت ادیتور — ۲۷ چک هدلس) + EditorApp (Swing — فقط نمایش)
-cli/     new / run / render / script / editor / selftest + Selftest battery
-verify/  VerifyH2Core / Script / Scene / Render / Editor (۱۳۰ چک)
-```
+مرجع کامل: [docs/SCRIPT.md](docs/SCRIPT.md)
 
 ## تضمین‌ها
 
-- **CI:** `verify.sh` = build + selftest (۲۶) + ۵ سوئیت (۱۳۰) + smoke lifecycle (new→render→run→PNG) — **ALL GREEN** یا push ممنوع.
-- **Determinism:** همهٔ رندرها و اسکریپت‌ها با seed قطعی؛ خروجی `render` تکرارپذیر است.
-- **دو سمت یک مدل:** ادیتور فقط `EditorModel` را نمایش می‌دهد؛ هر چیزی که ادیتور می‌کند با CLI و تست‌ها هم همان است.
+- **CI:** `verify.sh` = build + selftest (۳۲) + **۶ سوئیت** (۱۴۰) + smoke — **۱۷۲ چک، ALL GREEN** یا push ممنوع.
+- **قطعیت:** seed ثابت، delta ثابت — همان پروژه = همان امتیاز = همان PNG.
+- **مدل/نما:** ادیتور فقط نمایش `EditorModel` است؛ هر چیزی که F5 می‌کند، `hollow run` و تست‌ها هم همان را می‌کنند.
 
-## نقشهٔ راه بعدی (برای رسیدن به تجربهٔ گودوت/آنریل)
+## نقشهٔ راه بعدی
 
-1. **Edیتور:** drag در viewport، gizmo ترنسفورم، undo/redo، چند-سنده
-2. **رندرر:** سایه (shadow map)، بافت، پس‌زمینهٔ چندلایه، بک‌فیس کالینگ اختیاری
-3. **زبان:** کلاس/وراثت، signal/slot مثل گودوت، import ماژول
-4. **پلتفرم:** خروجی HTML5 (رندرر به JS ترجمه شود) و Android GLES backend
+1. صدا (WAV synth قطعی) + بافت‌های procedural
+2. signal/slot رسمی بین گره‌ها (مثل گودوت) + scene instancing
+3. خروجی HTML5 (ترجمهٔ rasterizer به JS) و Android GLES
+4. gizmo سه‌محوره در viewport + چند-سند
 
 مستندات: [docs/SPEC.md](docs/SPEC.md) · [docs/SCRIPT.md](docs/SCRIPT.md) · [docs/EDITOR.md](docs/EDITOR.md) · [docs/CLI.md](docs/CLI.md)

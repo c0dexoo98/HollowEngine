@@ -29,7 +29,7 @@ public final class Main {
                 case "script": exit(script(args)); break;
                 case "editor": exit(editor(args)); break;
                 case "selftest": exit(selftest()); break;
-                case "version": System.out.println("HollowEngine 2.0.0 'genesis'"); exit(0); break;
+                case "version": System.out.println("HollowEngine 2.1.0 'genesis'"); exit(0); break;
                 case "help": help(); exit(0); break;
                 default:
                     System.out.println("unknown command '" + cmd + "' — try `hollow help`");
@@ -100,7 +100,7 @@ public final class Main {
             List<String> out = new ArrayList<>();
             ScriptHost host = new ScriptHost(s, out::add, dir);
             int bound = host.start();
-            for(int i = 0; i < frames; i++) host.tickScripts(1.0 / 60);
+            for(int i = 0; i < frames; i++) host.stepWorld(1.0 / 60);
             System.out.println("scene: " + s.name + "  scripts bound: " + bound + "  frames: " + frames);
             for(String line : out) System.out.println("  " + line);
             return 0;
@@ -120,7 +120,7 @@ public final class Main {
             List<String> console = new ArrayList<>();
             ScriptHost host = new ScriptHost(s, console::add, dir);
             host.start();
-            for(int i = 0; i < frames; i++) host.tickScripts(1.0 / 60);
+            for(int i = 0; i < frames; i++) host.stepWorld(1.0 / 60);
             Frame f = new Renderer(dir).render(s, w, h);
             f.writePNG(out);
             System.out.println("wrote " + out + " (" + w + "x" + h + ", fill "
@@ -193,7 +193,7 @@ public final class Main {
     }
 
     private static void help(){
-        System.out.println("HollowEngine 2.0.0 'genesis'");
+        System.out.println("HollowEngine 2.1.0 'genesis'");
         System.out.println("  hollow new <dir>            scaffold a project");
         System.out.println("  hollow run <dir> [--frames N]    run scripts headless");
         System.out.println("  hollow render <dir> [--frames N] [--out f.png] [--w 960 --h 540]");

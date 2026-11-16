@@ -18,6 +18,19 @@ public final class Parser {
     public static final class Program {
         public final List<Stmt> body = new ArrayList<>();
         public final List<FuncDef> funcs = new ArrayList<>();
+        public final List<ClassDef> classes = new ArrayList<>();
+    }
+
+    /** class Name (extends Super)?: fields + methods, GDScript-style */
+    public static final class ClassDef {
+        public final String name;
+        public final String superName;                  // null if none
+        public final List<VarStmt> fields = new ArrayList<>();
+        public final java.util.LinkedHashMap<String, FuncDef> methods = new java.util.LinkedHashMap<>();
+        public final int line;
+        public ClassDef(String name, String superName, int line){
+            this.name = name; this.superName = superName; this.line = line;
+        }
     }
 
     public static final class FuncDef {
@@ -172,13 +185,39 @@ public final class Parser {
         Program prog = new Program();
         while(!is(Tok.EOF, null)){
             if(eat(Tok.NEWLINE, null) || eat(Tok.DEDENT, null) || eat(Tok.INDENT, null)) continue;
-            if(is(Tok.KW, "func")){
+            if(is(Tok.KW, "class")){
+                prog.classes.add(classDef());
+            } else if(is(Tok.KW, "func")){
                 prog.funcs.add(funcDef());
             } else {
                 prog.body.add(statement());
             }
         }
         return prog;
+    }
+
+    private ClassDef classDef(){
+        int line = expect(Tok.KW, "class").line;
+        String name = expect(Tok.IDENT, null).text;
+        String sup = null;
+        if(eat(Tok.KW, "extends")) sup = expect(Tok.IDENT, null).text;
+        expect(Tok.OP, ":");
+        ClassDef cls = new ClassDef(name, sup, line);
+        expect(Tok.NEWLINE, null);
+        expect(Tok.INDENT, null);
+        while(!is(Tok.DEDENT, null) && !is(Tok.EOF, null)){
+            if(eat(Tok.NEWLINE, null)) continue;
+            if(is(Tok.KW, "func")){
+                FuncDef m = funcDef();
+                cls.methods.put(m.name, m);
+            } else {
+                Stmt s = statement();
+                if(!(s instanceof VarStmt)) throw err("class body allows only 'var' and 'func'");
+                cls.fields.add((VarStmt)s);
+            }
+        }
+        expect(Tok.DEDENT, null);
+        return cls;
     }
 
     private FuncDef funcDef(){
@@ -408,6 +447,7 @@ public final class Parser {
         if(is(Tok.KW, "true")){ next(); return new BoolLit(true, line); }
         if(is(Tok.KW, "false")){ next(); return new BoolLit(false, line); }
         if(is(Tok.KW, "null")){ next(); return new NullLit(line); }
+        if(is(Tok.KW, "self")){ next(); return new Ident("self", line); }
         if(is(Tok.OP, "(")){
             next();
             Expr e = expr();

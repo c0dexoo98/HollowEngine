@@ -94,8 +94,8 @@ public class VerifyH2Core {
         MathX.Rng r4 = new MathX.Rng(2);
         boolean inRange = true;
         for(int i = 0; i < 500; i++){
-            float f = r4.range(3.5f, 7.5f);
-            if(f < 3.5f || f >= 7.5f) inRange = false;
+            double f = r4.range(3.5, 7.5);
+            if(f < 3.5 || f >= 7.5) inRange = false;
         }
         check("mx: range bounds", inRange, "");
         check("mx: different seeds diverge", new MathX.Rng(1).nextLong() != new MathX.Rng(2).nextLong(), "");

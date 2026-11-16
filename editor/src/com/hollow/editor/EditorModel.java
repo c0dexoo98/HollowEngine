@@ -3,6 +3,7 @@ package com.hollow.editor;
 import com.hollow.core.Json;
 import com.hollow.core.Json.JsonW;
 import com.hollow.render.Frame;
+import com.hollow.render.Rasterizer;
 import com.hollow.render.Renderer;
 import com.hollow.scene.CameraNode;
 import com.hollow.scene.LightNode;
@@ -30,10 +31,60 @@ public final class EditorModel {
     public String selected = "";
     public final List<String> console = new ArrayList<>();
     public final StringBuilder runLog = new StringBuilder();
+    // undo/redo (scene JSON snapshots, capped)
+    final java.util.Deque<String> undoStack = new java.util.ArrayDeque<>();
+    final java.util.Deque<String> redoStack = new java.util.ArrayDeque<>();
+    // editor orbit camera (used when useOrbitCamera is on)
+    public boolean useOrbitCamera = false;
+    public float viewYaw = 25f, viewPitch = 22f, viewDist = 12f;
+    // play mode (Godot-style F5)
+    ScriptHost playHost;
+    public boolean playing = false;
 
     public EditorModel(){ }
     public EditorModel(Path projectDir){
         this.projectDir = projectDir;
+    }
+
+    // ------------------------- undo / redo -------------------------
+
+    void snapshot(){
+        undoStack.push(scene.save());
+        if(undoStack.size() > 100) undoStack.removeLast();
+        redoStack.clear();
+    }
+
+    public boolean canUndo(){ return !undoStack.isEmpty(); }
+    public boolean canRedo(){ return !redoStack.isEmpty(); }
+
+    public boolean undo(){
+        if(undoStack.isEmpty()) return false;
+        redoStack.push(scene.save());
+        try {
+            scene = new Scene();
+            scene.load(undoStack.pop());
+            if(scene.find(selected) == null) selected = "";
+            log("undo");
+            return true;
+        } catch(Exception e){
+            log("undo failed: " + e.getMessage());
+            return false;
+        }
+    }
+
+    public boolean redo(){
+        if(redoStack.isEmpty()) return false;
+        undoStack.push(scene.save());
+        try {
+            scene = new Scene();
+            scene.load(redoStack.pop());
+            if(scene.find(selected) == null) selected = "";
+            log("redo");
+            return true;
+        } catch(Exception e){
+            log("redo failed: " + e.getMessage());
+            return false;
+        }
     }
 
     // ------------------------- console -------------------------
@@ -81,6 +132,7 @@ public final class EditorModel {
             log("node '" + name + "' already exists");
             return null;
         }
+        snapshot();
         Node n = scene.createNode(type, name);
         scene.add(n);
         selected = name;
@@ -91,6 +143,7 @@ public final class EditorModel {
     public boolean deleteNode(String name){
         Node n = scene.find(name);
         if(n == null || n == scene.root) return false;
+        snapshot();
         scene.root.remove(n);
         if(selected.equals(name)) selected = "";
         log("deleted '" + name + "'");
@@ -100,6 +153,7 @@ public final class EditorModel {
     public boolean renameNode(String oldName, String newName){
         Node n = scene.find(oldName);
         if(n == null || newName == null || newName.isEmpty() || scene.find(newName) != null) return false;
+        snapshot();
         n.name = newName;
         if(selected.equals(oldName)) selected = newName;
         log("renamed '" + oldName + "' -> '" + newName + "'");
@@ -142,6 +196,7 @@ public final class EditorModel {
             props.put("intensity", (double)((LightNode)n).intensity);
         }
         if(n instanceof ScriptNode) props.put("path", ((ScriptNode)n).path);
+        if(n instanceof MeshNode || n.type().equals("node")) addPhysicsProps(props, n);
         return props;
     }
 
@@ -151,10 +206,17 @@ public final class EditorModel {
         if(n == null || !properties(name).containsKey(key)) return false;
         if(key.equals("type")) return false;
         try {
+            boolean ok;
             switch(key){
                 case "name":
-                    if(!renameNode(name, String.valueOf(value))) return false;
-                    return true;
+                    ok = renameNode(name, String.valueOf(value));
+                    if(ok) return true;
+                    return false;
+                default:
+                    break;
+            }
+            snapshot();
+            switch(key){
                 case "visible": n.visible = Boolean.parseBoolean(String.valueOf(value)); return true;
                 case "active": if(n instanceof CameraNode) ((CameraNode)n).active = Boolean.parseBoolean(String.valueOf(value)); return true;
                 case "mesh": if(n instanceof MeshNode) ((MeshNode)n).meshPath = String.valueOf(value); return true;
@@ -164,6 +226,11 @@ public final class EditorModel {
                 case "intensity": if(n instanceof LightNode) ((LightNode)n).intensity = (float)num(value); return true;
                 case "fov": if(n instanceof CameraNode) ((CameraNode)n).fov = (float)num(value); return true;
                 case "path": if(n instanceof ScriptNode) ((ScriptNode)n).path = String.valueOf(value); return true;
+                case "dynamic": n.dynamic = Boolean.parseBoolean(String.valueOf(value)); return true;
+                case "bounciness": n.bounciness = (float)num(value); return true;
+                case "velocity_x": n.velocity.x = (float)num(value); return true;
+                case "velocity_y": n.velocity.y = (float)num(value); return true;
+                case "velocity_z": n.velocity.z = (float)num(value); return true;
                 default:
                     double d = num(value);
                     switch(key){
@@ -184,23 +251,148 @@ public final class EditorModel {
         }
     }
 
+    /** physics + dynamic schema for the inspector */
+    private void addPhysicsProps(LinkedHashMap<String, Object> props, Node n){
+        props.put("dynamic", n.dynamic);
+        props.put("bounciness", (double)n.bounciness);
+        props.put("velocity_x", (double)n.velocity.x);
+        props.put("velocity_y", (double)n.velocity.y);
+        props.put("velocity_z", (double)n.velocity.z);
+    }
+
     private double num(Object v){
         if(v instanceof Number) return ((Number)v).doubleValue();
         return Double.parseDouble(String.valueOf(v));
     }
 
-    // ------------------------- viewport + run -------------------------
+    // ------------------------- viewport + orbit camera -------------------------
 
-    public Frame renderPreview(int w, int h){
-        return new Renderer(projectDir).render(scene, w, h);
+    /** orbit the editor camera: dx in degrees around Y, dy in degrees of pitch */
+    public void orbit(float dxDeg, float dyDeg){
+        viewYaw = (viewYaw + dxDeg) % 360;
+        viewPitch = Math.max(2f, Math.min(88f, viewPitch + dyDeg));
     }
 
-    /** run the scene headless: start scripts, advance frames, dispatch inputs */
+    /** wheel zoom factor: >1 zooms in */
+    public void zoom(float factor){
+        viewDist = Math.max(2f, Math.min(120f, viewDist / factor));
+    }
+
+    public Frame renderPreview(int w, int h){
+        if(!useOrbitCamera) return new Renderer(projectDir).render(scene, w, h);
+        // editor camera: spherical around the origin, always looking at it
+        double cp = Math.cos(Math.toRadians(viewPitch)), sp = Math.sin(Math.toRadians(viewPitch));
+        double sy = Math.sin(Math.toRadians(viewYaw)), cy = Math.cos(Math.toRadians(viewYaw));
+        com.hollow.core.MathX.Vec3 eye = new com.hollow.core.MathX.Vec3(
+            (float)(viewDist * cp * sy), (float)(viewDist * sp), (float)(viewDist * cp * cy));
+        com.hollow.core.MathX.Vec3 rot = new com.hollow.core.MathX.Vec3(-viewPitch, viewYaw, 0);
+        com.hollow.core.MathX.Mat4 view = com.hollow.render.Rasterizer.cameraView(eye, rot);
+        com.hollow.core.MathX.Mat4 proj = new com.hollow.core.MathX.Mat4().identity()
+            .perspective(60, (float)w / h, 0.1f, 500f);
+        com.hollow.render.Frame f = new com.hollow.render.Frame(w, h);
+        int clear = com.hollow.render.Colors.parse(scene.clearColor);
+        f.clear(clear);
+        java.util.List<Rasterizer.Light> lights = new java.util.ArrayList<>();
+        java.util.List<Node> meshes = new java.util.ArrayList<>();
+        scene.root.walk(n -> {
+            if(n instanceof LightNode && n.visible){
+                LightNode ln = (LightNode)n;
+                lights.add(new Rasterizer.Light(
+                    n.worldMatrix().transformDir(ln.lightDir()).norm(),
+                    com.hollow.render.Colors.parse(ln.color), ln.intensity));
+            }
+            if(n instanceof MeshNode && n.visible) meshes.add(n);
+        });
+        Rasterizer.Light light = lights.isEmpty()
+            ? new Rasterizer.Light(new com.hollow.core.MathX.Vec3(-0.3f, -1f, -0.2f).norm(), 0xFFFFFFFF, 1f)
+            : lights.get(0);
+        Renderer renderer = new Renderer(projectDir);
+        for(Node n : meshes){
+            MeshNode mn = (MeshNode)n;
+            Rasterizer.drawMesh(f, renderer.meshFor(mn.meshPath), n.worldMatrix(), view, proj, eye, light,
+                                com.hollow.render.Colors.parse(mn.color), scene.ambient, scene.fog, clear);
+        }
+        if(scene.shadowPlaneY >= 0 && light.dir.y < -1e-4f){
+            for(Node n : meshes){
+                float bottom = n.worldPosition().y - Math.abs(n.scale.y);
+                if(bottom > scene.shadowPlaneY + 0.02f)
+                    Rasterizer.drawShadow(f, renderer.meshFor(((MeshNode)n).meshPath),
+                                          n.worldMatrix(), view, proj, light, scene.shadowPlaneY);
+            }
+        }
+        return f;
+    }
+
+    // ------------------------- picking + drag -------------------------
+
+    /** select the mesh under the viewport pixel (or clear selection) */
+    public boolean pickAt(float px, float py, int w, int h){
+        Node hit = new Renderer(projectDir).pick(scene, w, h, px, py);
+        if(hit == null){
+            selected = "";
+            return false;
+        }
+        selected = hit.name;
+        return true;
+    }
+
+    /** move the selected node on the ground plane following a pixel delta */
+    public void dragSelected(float dxPx, float dyPx, int w, int h){
+        Node n = scene.find(selected);
+        if(n == null || n == scene.root) return;
+        float yaw = useOrbitCamera ? viewYaw : 0;
+        CameraNode cam = scene.activeCamera();
+        float fov = useOrbitCamera ? 60 : (cam != null ? cam.fov : 60);
+        float dist = useOrbitCamera ? viewDist
+            : (n.worldPosition().sub(new com.hollow.core.MathX.Vec3(
+                   cam != null ? cam.worldPosition().x : 0,
+                   cam != null ? cam.worldPosition().y : 3,
+                   cam != null ? cam.worldPosition().z : 9)).len());
+        float wpp = 2f * (float)Math.tan(Math.toRadians(fov) * 0.5f) * Math.max(1, dist) / h;
+        // camera right (XZ) and forward-ground vectors from yaw
+        float rx = (float)Math.cos(Math.toRadians(yaw)), rz = (float)-Math.sin(Math.toRadians(yaw));
+        float fx = (float)Math.sin(Math.toRadians(yaw)), fz = (float)Math.cos(Math.toRadians(yaw));
+        n.position.x += (dxPx * rx - dyPx * fx) * wpp;
+        n.position.z += (dxPx * rz - dyPx * fz) * wpp;
+    }
+
+    public void beginDrag(){ snapshot(); }
+
+    // ------------------------- play mode (F5) -------------------------
+
+    public boolean isPlaying(){ return playing; }
+
+    public void playStart(){
+        if(playing) return;
+        playHost = new ScriptHost(scene, this::log, projectDir);
+        playing = true;
+        int started = playHost.start();
+        log("play: started (" + started + " script(s))");
+    }
+
+    /** one simulated frame while playing (physics + scripts) */
+    public void playTick(double delta){
+        if(!playing || playHost == null) return;
+        playHost.stepWorld(delta);
+    }
+
+    public void playInput(String key){
+        if(playing && playHost != null) playHost.input(key);
+    }
+
+    public void playStop(){
+        if(!playing) return;
+        playing = false;
+        playHost = null;
+        log("play: stopped");
+    }
+
+    /** run the scene headless: start scripts, step physics+scripts, dispatch inputs */
     public String run(int frames, double delta, List<String> inputs){
         ScriptHost host = new ScriptHost(scene, this::log, projectDir);
         int started = host.start();
         log("run: " + started + " script(s) bound");
-        for(int i = 0; i < frames; i++) host.tickScripts(delta);
+        for(int i = 0; i < frames; i++) host.stepWorld(delta);
         for(String key : inputs) host.input(key);
         log("run: " + frames + " frames done");
         return runLog.toString();

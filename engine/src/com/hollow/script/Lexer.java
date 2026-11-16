@@ -23,7 +23,8 @@ public final class Lexer {
 
     static final String[] KEYWORDS = {
         "var", "func", "if", "elif", "else", "while", "for", "in", "return",
-        "break", "continue", "true", "false", "null", "and", "or", "not", "pass"
+        "break", "continue", "true", "false", "null", "and", "or", "not", "pass",
+        "class", "extends", "self"
     };
 
     public static List<Token> lex(String src){

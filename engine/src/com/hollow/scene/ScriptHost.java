@@ -92,6 +92,34 @@ public final class ScriptHost {
         return ran[0];
     }
 
+    /** one game-frame entry point: physics → collisions → scripts.
+     *  Scripts get on_collision(node, other, scene, axis) for each
+     *  new contact, then on_update(node, scene, delta). */
+    public void stepWorld(double delta){
+        com.hollow.physics.Physics physics = new com.hollow.physics.Physics();
+        java.util.List<com.hollow.physics.Physics.Collision> hits = physics.step(scene, delta);
+        if(!hits.isEmpty()){
+            scene.root.walk(n -> {
+                if(n instanceof ScriptNode){
+                    Interp interp = interpFor((ScriptNode)n);
+                    if(interp != null && interp.hasFunc("on_collision")){
+                        for(com.hollow.physics.Physics.Collision c : hits){
+                            try {
+                                interp.callFunc("on_collision", n, scene, c.a, c.b, c.axis);
+                            } catch(Exception e){
+                                out.accept("[script " + ((ScriptNode)n).path + "] " + e.getMessage());
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        tickScripts(delta);
+    }
+
+    /** test/tooling access to a bound interpreter (null if the script failed to load) */
+    public Interp interpOf(ScriptNode sn){ return interpFor(sn); }
+
     /** one interpreter per script node per host (null caches load failures) */
     private Interp interpFor(ScriptNode sn){
         if(cache.containsKey(sn)) return cache.get(sn);

@@ -149,8 +149,8 @@ public final class MathX {
         public double nextDouble(){
             return (nextLong() >>> 11) * (1.0 / (1L << 53));
         }
-        public float range(float lo, float hi){
-            return lo + (hi - lo) * (float)nextDouble();
+        public double range(double lo, double hi){
+            return lo + (hi - lo) * nextDouble();
         }
         public int nextInt(int bound){
             if(bound <= 0) throw new IllegalArgumentException("bound");

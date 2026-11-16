@@ -1,0 +1,20 @@
+{
+  "hscene": 2,
+  "name": "orb-runner",
+  "clear_color": "sky",
+  "ambient": 0.35,
+  "gravity": 9.8,
+  "fog": 0.35,
+  "shadow_plane_y": -1.0,
+  "root": {
+    "name": "root", "type": "node",
+    "position": [0, 0, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1], "visible": true,
+    "children": [
+      { "name": "ground", "type": "mesh", "position": [0, -1.05, 0], "rotation": [0, 0, 0], "scale": [40, 0.1, 40], "visible": true, "mesh": "cube.obj", "color": "grass", "children": [] },
+      { "name": "player", "type": "mesh", "position": [0, 0.2, 0], "rotation": [0, 0, 0], "scale": [0.8, 0.8, 0.8], "visible": true, "mesh": "cube.obj", "color": "gold", "dynamic": true, "bounciness": 0.2, "children": [] },
+      { "name": "camera", "type": "camera", "position": [0, 4.5, 10], "rotation": [-20, 0, 0], "scale": [1, 1, 1], "visible": true, "fov": 60, "near": 0.1, "far": 500, "active": true, "children": [] },
+      { "name": "sun", "type": "light", "position": [0, 0, 0], "rotation": [-40, 25, 0], "scale": [1, 1, 1], "visible": true, "color": "white", "intensity": 1.0, "children": [] },
+      { "name": "game", "type": "script", "position": [0, 0, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1], "visible": true, "path": "game.hs", "children": [] }
+    ]
+  }
+}

@@ -58,12 +58,46 @@ scene.find("hero")  scene.spawn("mesh", "enemy")   scene.remove("x")
 node.position_x     node.rotation_y = 45  node.visible = false
 ```
 
+## کلاس‌ها (OOP)
+
+```python
+class Enemy:
+    var hp = 10                      # فیلدها با مقدار پیش‌فرض
+    var name = "grunt"
+
+    func _init(start_hp):            # سازنده (اختیاری)
+        self.hp = start_hp
+
+    func hit(d):
+        self.hp = self.hp - d
+        return self.hp
+
+    func alive():
+        return self.hp > 0
+
+class Boss extends Enemy:            # ارث‌بری: فیلدها + متدها
+    var armor = 2
+
+var e = Enemy.new(30)                # نمونه‌سازی: ClassName.new(args)
+var b = Boss.new(50)
+e.hit(5)                             # فراخوانی متد
+b.armor                              # خواندن فیلد زنجیرهٔ ارث
+```
+
+قواعد:
+- فیلدها به‌ترتیب از **کلاس پایه تا برگ** مقداردهی می‌شوند؛ بعد `_init` اجرا می‌شود.
+- متدها در زنجیرهٔ `extends` جست‌وجو می‌شوند (override طبیعی). `self` در متدها در دسترس است.
+- set روی فیلد ناموجود، آن را می‌سازد (declare-on-set، سند شده).
+- `typeof(obj)` نام کلاس را برمی‌گرداند. super-call هنوز نیست (روی نقشهٔ راه).
+- کلاس‌ها سطح global اند؛ closure ندارند. فیلد init به پارامترهای `_init` دسترسی ندارد.
+
 ## نقطهٔ اتصال به موتور (Native surface)
 
 هر گره صحنه و خود صحنه از پشتِ `Interp.Native` به اسکریپت می‌آیند:
 
 - **Node:** `name` `type` `visible` `position_x/y/z` `rotation_x/y/z` `scale_x/y/z` `child_count`؛ متدهای `find(child)`, `child(i)`
-- **Scene:** `name` `clear_color` `ambient` `node_count`؛ متدهای `find`, `spawn(type, name)`, `remove(name)`, `count`
+- **فیزیک روی Node:** `dynamic` `bounciness` `velocity_x/y/z`
+- **Scene:** `name` `clear_color` `ambient` `node_count` `gravity` `fog` `shadow_plane_y`؛ متدهای `find`, `spawn(type, name)`, `remove(name)`, `count`
 
 ## قلاب‌های موتور (توابعی که موتور صدا می‌زند)
 
@@ -72,6 +106,9 @@ node.position_x     node.rotation_y = 45  node.visible = false
 | `on_start` | `(node, scene)` | پس از bind شدن اسکریپت |
 | `on_update` | `(node, scene, delta)` | هر فریم (dt ثابت 1/60 در هدلس) |
 | `on_input` | `(node, scene, key)` | هر رویداد ورودی صف‌شده |
+| `on_collision` | `(node, scene, a, b, axis)` | هر تماس فیزیک جدید (axis: x/y/z) — در `stepWorld` |
+
+>`stepWorld(delta)` = فیزیک → رویداد برخورد → on_update؛ همان مسیری که `hollow run`، حالت Play ادیتور و تست‌ها می‌روند.
 
 ## خطاها
 

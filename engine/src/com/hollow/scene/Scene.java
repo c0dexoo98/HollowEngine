@@ -17,6 +17,11 @@ public final class Scene implements Interp.Native {
     public String clearColor = "sky";
     public float ambient = 0.35f;
     public String name = "scene";
+    // physics
+    public float gravity = 9.8f;
+    // render settings
+    public float fog = 0f;                               // 0..1 distance fog strength
+    public float shadowPlaneY = -1f;                     // <0 disables planar shadows
 
     public Node createNode(String type, String node){
         String t = type == null ? "node" : type;
@@ -54,6 +59,7 @@ public final class Scene implements Interp.Native {
     @Override public boolean hHas(String key){
         switch(key){
             case "name": case "clear_color": case "ambient": case "node_count":
+            case "gravity": case "fog": case "shadow_plane_y":
                 return true;
             default: return false;
         }
@@ -64,6 +70,9 @@ public final class Scene implements Interp.Native {
             case "clear_color": return clearColor;
             case "ambient": return (double)ambient;
             case "node_count": return (double)count();
+            case "gravity": return (double)gravity;
+            case "fog": return (double)fog;
+            case "shadow_plane_y": return (double)shadowPlaneY;
             default: return null;
         }
     }
@@ -72,6 +81,9 @@ public final class Scene implements Interp.Native {
             case "name": name = String.valueOf(v); return;
             case "clear_color": clearColor = String.valueOf(v); return;
             case "ambient": ambient = (float)(double)(Double)v; return;
+            case "gravity": gravity = (float)(double)(Double)v; return;
+            case "fog": fog = (float)(double)(Double)v; return;
+            case "shadow_plane_y": shadowPlaneY = (float)(double)(Double)v; return;
             default: throw new IllegalStateException("scene has no property '" + key + "'");
         }
     }
@@ -108,7 +120,8 @@ public final class Scene implements Interp.Native {
 
     public String save(){
         JsonW w = new JsonW();
-        w.obj().kv("hscene", 2).kv("name", name).kv("clear_color", clearColor).kv("ambient", ambient);
+        w.obj().kv("hscene", 2).kv("name", name).kv("clear_color", clearColor).kv("ambient", ambient)
+          .kv("gravity", (double)gravity).kv("fog", (double)fog).kv("shadow_plane_y", (double)shadowPlaneY);
         w.obj("root");
         writeNodeBody(w, root);
         w.endObj();
@@ -128,6 +141,9 @@ public final class Scene implements Interp.Native {
         w.arr("rotation").item((double)n.rotation.x).item((double)n.rotation.y).item((double)n.rotation.z).endArr();
         w.arr("scale").item((double)n.scale.x).item((double)n.scale.y).item((double)n.scale.z).endArr();
         w.kv("visible", n.visible);
+        if(n.dynamic) w.kv("dynamic", true).kv("bounciness", (double)n.bounciness);
+        if(n.dynamic || n.velocity.x != 0 || n.velocity.y != 0 || n.velocity.z != 0)
+            w.arr("velocity").item((double)n.velocity.x).item((double)n.velocity.y).item((double)n.velocity.z).endArr();
         if(n instanceof MeshNode) w.kv("mesh", ((MeshNode)n).meshPath).kv("color", ((MeshNode)n).color);
         if(n instanceof CameraNode){
             CameraNode c = (CameraNode)n;
@@ -145,6 +161,9 @@ public final class Scene implements Interp.Native {
         name = Json.str(m.get("name"), "scene");
         clearColor = Json.str(m.get("clear_color"), "sky");
         ambient = (float)Json.num(m.get("ambient"), 0.35f);
+        gravity = (float)Json.num(m.get("gravity"), 9.8f);
+        fog = (float)Json.num(m.get("fog"), 0f);
+        shadowPlaneY = (float)Json.num(m.get("shadow_plane_y"), -1f);
         Map<String,Object> rm = Json.obj(m.get("root"));
         if(rm == null) return;
         Node r = readNode(rm);
@@ -174,6 +193,11 @@ public final class Scene implements Interp.Native {
                     (float)Json.num(scl.size() > 1 ? scl.get(1) : null, 1),
                     (float)Json.num(scl.size() > 2 ? scl.get(2) : null, 1));
         n.visible = Json.bool(m.get("visible"), true);
+        n.dynamic = Json.bool(m.get("dynamic"), false);
+        n.bounciness = (float)Json.num(m.get("bounciness"), 0f);
+        List<Object> vel = (List<Object>)m.get("velocity");
+        if(vel != null && vel.size() == 3)
+            n.velocity.set((float)Json.num(vel.get(0), 0), (float)Json.num(vel.get(1), 0), (float)Json.num(vel.get(2), 0));
         if(n instanceof MeshNode){
             ((MeshNode)n).meshPath = Json.str(m.get("mesh"), "");
             ((MeshNode)n).color = Json.str(m.get("color"), "silver");

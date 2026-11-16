@@ -21,6 +21,10 @@ public class Node implements Interp.Native {
     public final Vec3 rotation = new Vec3(0, 0, 0);      // euler degrees
     public final Vec3 scale = new Vec3(1, 1, 1);
     public boolean visible = true;
+    // physics body (Physics.step moves dynamic nodes; static never move)
+    public boolean dynamic = false;
+    public final Vec3 velocity = new Vec3(0, 0, 0);
+    public float bounciness = 0f;                        // restitution 0..1
 
     public Node(String name){ this.name = name; }
 
@@ -92,6 +96,8 @@ public class Node implements Interp.Native {
             case "rotation_x": case "rotation_y": case "rotation_z":
             case "scale_x": case "scale_y": case "scale_z":
             case "child_count":
+            case "dynamic": case "bounciness":
+            case "velocity_x": case "velocity_y": case "velocity_z":
                 return true;
             default: return false;
         }
@@ -111,14 +117,22 @@ public class Node implements Interp.Native {
             case "scale_y": return (double)scale.y;
             case "scale_z": return (double)scale.z;
             case "child_count": return (double)childCount();
+            case "dynamic": return dynamic;
+            case "bounciness": return (double)bounciness;
+            case "velocity_x": return (double)velocity.x;
+            case "velocity_y": return (double)velocity.y;
+            case "velocity_z": return (double)velocity.z;
             default: return null;
         }
     }
     @Override public void hSet(String key, Object v){
+        boolean boolVal = com.hollow.script.Interp.strOf(v).equals("true");
         double d = (v instanceof Number) ? ((Number)v).doubleValue() : Double.NaN;
         switch(key){
             case "name": name = String.valueOf(v); return;
-            case "visible": visible = com.hollow.script.Interp.strOf(v).equals("true"); return;
+            case "visible": visible = boolVal; return;
+            case "dynamic": dynamic = boolVal; return;
+            case "bounciness": bounciness = (float)d; return;
             case "position_x": position.x = (float)d; return;
             case "position_y": position.y = (float)d; return;
             case "position_z": position.z = (float)d; return;
@@ -128,6 +142,9 @@ public class Node implements Interp.Native {
             case "scale_x": scale.x = (float)d; return;
             case "scale_y": scale.y = (float)d; return;
             case "scale_z": scale.z = (float)d; return;
+            case "velocity_x": velocity.x = (float)d; return;
+            case "velocity_y": velocity.y = (float)d; return;
+            case "velocity_z": velocity.z = (float)d; return;
             default: throw new IllegalStateException("native '" + hTypeName() + "' has no property '" + key + "'");
         }
     }

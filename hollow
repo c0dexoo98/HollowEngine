@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# HollowEngine 2 — `hollow` command. Builds on first use, then runs the CLI.
+#   hollow new|run|render|script|editor|selftest|version|help [args]
+set -u
+DIR="$(cd "$(dirname "$0")" && pwd)"
+JDK=${HOLLOW_JDK:-/home/z/my-project/tools/jdk-21.0.13+9/bin}
+CP="$DIR/build-out/cli:$DIR/build-out/engine:$DIR/build-out/editor"
+
+if [ ! -f "$DIR/build-out/cli/com/hollow/cli/Main.class" ] || [ "$DIR/engine/src/com/hollow/script/Interp.java" -nt "$DIR/build-out/cli/com/hollow/cli/Main.class" ]; then
+  bash "$DIR/verify.sh" >/dev/null 2>&1 || { echo "build failed — run: bash verify.sh"; exit 1; }
+fi
+
+exec "$JDK/java" -cp "$CP" com.hollow.cli.Main "$@"

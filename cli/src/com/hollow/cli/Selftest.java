@@ -354,6 +354,138 @@ final class Selftest {
             }
         });
 
+        // --- classes (HollowScript OOP) ---
+        b.add(() -> {
+            Interp i = Interp.fromSource(String.join("\n",
+                "class Enemy:",
+                "    var hp = 10",
+                "    func _init(start):",
+                "        self.hp = start",
+                "    func hit(d):",
+                "        self.hp = self.hp - d",
+                "        return self.hp",
+                "class Boss extends Enemy:",
+                "    var armor = 2",
+                "var e = Enemy.new(30)",
+                "var b = Boss.new(50)"));
+            i.runBody();
+            Interp.ScriptObject e = (Interp.ScriptObject)i.global("e");
+            Interp.ScriptObject boss = (Interp.ScriptObject)i.global("b");
+            if(e == null || boss == null) throw new AssertionError("instantiate");
+            if((double)e.hGet("hp") != 30 || (double)boss.hGet("armor") != 2) throw new AssertionError("fields");
+            if((double)boss.callMethod("hit", java.util.List.of((Object)5.0), 0) != 45) throw new AssertionError("inherited method");
+            if(!Interp.typeName(boss).equals("Boss")) throw new AssertionError("typename: " + Interp.typeName(boss));
+        });
+
+        // --- physics end to end ---
+        b.add(() -> {
+            com.hollow.physics.Physics p = new com.hollow.physics.Physics();
+            Scene s = new Scene();
+            MeshNode ground = (MeshNode)s.createNode("mesh", "ground");
+            ground.position.set(0, -1.05f, 0);
+            ground.scale.set(40, 0.1f, 40);
+            s.add(ground);
+            MeshNode box = (MeshNode)s.createNode("mesh", "box");
+            box.dynamic = true;
+            box.position.set(0, 3, 0);
+            s.add(box);
+            LightNode sun = (LightNode)s.createNode("light", "sun");
+            s.add(sun);
+            float minY = Float.MAX_VALUE;
+            for(int i = 0; i < 300; i++){
+                p.step(s, 1.0 / 60);
+                minY = Math.min(minY, box.position.y);
+            }
+            // rests at -1.05 + 1.0 + 0.1 = 0.05; sun (a light) is not solid
+            if(!(box.position.y > -0.2f && box.position.y < 0.15f)) throw new AssertionError("rest: " + box.position.y);
+            if(minY < -0.35f) throw new AssertionError("tunneled: " + minY);
+        });
+
+        // --- editor undo/redo + play + orbit + pick ---
+        b.add(() -> {
+            EditorModel em = new EditorModel(Path.of("."));
+            em.addNode("mesh", "hero");
+            em.setProperty("hero", "color", "gold");
+            if(!em.canUndo()) throw new AssertionError("undo stack");
+            // stack: [pre-add(empty), pre-color(hero/silver)] — undo twice to reach empty
+            if(!em.undo() || !"silver".equals(em.properties("hero").get("color"))) throw new AssertionError("undo1");
+            if(!em.undo() || em.findNode("hero") != null) throw new AssertionError("undo2");
+            if(!em.redo() || em.findNode("hero") == null) throw new AssertionError("redo1");
+            if(!em.redo() || !"gold".equals(em.properties("hero").get("color"))) throw new AssertionError("redo2");
+        });
+        b.add(() -> {
+            try {
+                Path dir = java.nio.file.Files.createTempDirectory("h2play");
+                java.nio.file.Files.writeString(dir.resolve("spin.hs"), String.join("\n",
+                    "var ticks = 0",
+                    "func on_update(node, scene, delta):",
+                    "    ticks = ticks + 1",
+                    "    scene.find(\"hero\").rotation_y = ticks",
+                    "",
+                    "func on_collision(node, scene, a, b, axis):",
+                    "    print(\"bump\", a.name, b.name, axis)"));
+                EditorModel em = new EditorModel(dir);
+                MeshNode hero = (MeshNode)em.addNode("mesh", "hero");
+                hero.dynamic = true;
+                Node ctl = em.addNode("script", "ctl");
+                ((com.hollow.scene.ScriptNode)ctl).path = "spin.hs";
+                em.addNode("mesh", "ground");
+                em.playStart();
+                for(int i = 0; i < 30; i++) em.playTick(1.0 / 30);
+                if(em.findNode("hero").rotation.y < 25) throw new AssertionError("play drove node: " + em.findNode("hero").rotation.y);
+                em.playInput("space");
+                em.playStop();
+                if(em.isPlaying()) throw new AssertionError("stop");
+            } catch(java.io.IOException e){
+                throw new AssertionError(e);
+            }
+        });
+        b.add(() -> {
+            EditorModel em = new EditorModel(Path.of("."));
+            em.useOrbitCamera = true;
+            em.addNode("mesh", "hero");
+            Frame f1 = em.renderPreview(160, 90);
+            em.orbit(90, 10);
+            em.zoom(1.3f);
+            Frame f2 = em.renderPreview(160, 90);
+            if(f1.fillRatio() <= 0 || f2.fillRatio() <= 0) throw new AssertionError("orbit renders blank");
+            // drag moves the selected node on the ground plane
+            em.select("hero");
+            float x0 = em.findNode("hero").position.x;
+            em.beginDrag();
+            em.dragSelected(20, 0, 480, 270);
+            if(em.findNode("hero").position.x == x0) throw new AssertionError("drag moved nothing");
+        });
+        b.add(() -> {
+            // planar shadows darken the ground under a floating box
+            Scene s = new Scene();
+            MeshNode ground = (MeshNode)s.createNode("mesh", "ground");
+            ground.position.set(0, -1.05f, 0);
+            ground.scale.set(30, 0.1f, 30);
+            ground.color = "grass";
+            s.add(ground);
+            MeshNode box = (MeshNode)s.createNode("mesh", "box");
+            box.position.set(1, 1.2f, 0);
+            box.color = "gold";
+            s.add(box);
+            CameraNode cam = (CameraNode)s.createNode("camera", "cam");
+            cam.position.set(0, 3, 9);
+            cam.rotation.x = -14;
+            s.add(cam);
+            LightNode sun = (LightNode)s.createNode("light", "sun");
+            sun.rotation.set(-45, 30, 0);
+            s.add(sun);
+            s.shadowPlaneY = -1.0f;
+            Frame f = new com.hollow.render.Renderer(Path.of(".")).render(s, 320, 180);
+            int shadowPixels = 0;
+            int gl = 0x4C + 0x9F + 0x4C;
+            for(int p : f.pixels){
+                int lum = ((p >> 16) & 0xFF) + ((p >> 8) & 0xFF) + (p & 0xFF);
+                if(p != f.background && lum < gl * 0.6) shadowPixels++;
+            }
+            if(shadowPixels < 100) throw new AssertionError("shadows: " + shadowPixels);
+        });
+
         return b.toArray(new Runnable[0]);
     }
 }

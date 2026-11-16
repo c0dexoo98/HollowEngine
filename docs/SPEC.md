@@ -7,42 +7,49 @@
 | لایه | فایل‌ها | خطوط (تقریبی) |
 |---|---|---|
 | core | `Json` (parser+writer با پشتهٔ جداکننده)، `MathX` (Vec3، Mat4 ستونی، perspective، lookAt، Rng xorshift64*) | ~۴۵۰ |
-| script | `Lexer` (INDENT/DEDENT، ۱۸ کلیدواژه)، `Parser` (AST + تقدم کامل + متد-کال)، `Interp` (Env زنجیره‌ای، ReturnEx/BreakEx/ContinueEx، ~۲۵ builtin، Native surface) | ~۱٬۴۰۰ |
-| scene | `Node` (ترنسفورم سلسله‌مراتبی + snapshot walk)، ۴ نود تایپ‌دار، `Scene` (JSON IO + spawn idempotent)، `ScriptHost` (cache + log-not-throw) | ~۵۰۰ |
-| render | `Colors` (پالت+hex)، `Mesh` (OBJ v/vn/f، fan triangulation، cube داخلی)، `Rasterizer` (edge function، z-buffer، Lambert+Blinn، دو-رو)، `Frame` (PNG via ImageIO، fillRatio)، `Renderer` (دوربین فعال+نور+محیط) | ~۶۰۰ |
-| editor | `EditorModel` (همهٔ عملیات هدلس)، `EditorApp` (Swing ۵ داک) | ~۴۵۰ |
-| cli | `Main` (۷ فرمان)، `Selftest` (۲۶ چک) | ~۵۵۰ |
+| script | `Lexer` (INDENT/DEDENT، ۲۱ کلیدواژه)، `Parser` (AST + تقدم کامل + متد-کال + **ClassDef**)، `Interp` (Env زنجیره‌ای، **ScriptObject + ارث‌بری + _init**، ~۲۸ builtin، Native surface) | ~۱٬۶۰۰ |
+| scene | `Node` (ترنسفورم سلسله‌مراتبی + snapshot walk + **بدنهٔ فیزیکی**)، ۴ نود تایپ‌دار، `Scene` (JSON IO + spawn idempotent + gravity/fog/shadowPlane)، `ScriptHost` (**stepWorld**: فیزیک→برخورد→اسکریپت) | ~۶۰۰ |
+| physics | `Physics` (جاذبه، AABB با نیم‌اندازه=scale، resolve کمینه‌محور دو-pass، restitution، فیلتر بدنه‌های solid، rayBox برای pick) | ~۱۲۰ |
+| render | `Colors`، `Mesh` (OBJ)، `Rasterizer` (z-buffer، Lambert+Blinn، **fog فاصله‌ای**، **سایهٔ planar با bias**، **cameraRay**)، `Frame` (PNG)، `Renderer` (+pick) | ~۷۰۰ |
+| editor | `EditorModel` (**undo/redo snapshot**، **دوربین مداری**، **pick/drag**، **Play mode**)، `EditorApp` (۵ داک + F5 + کیبورد) | ~۶۵۰ |
+| cli | `Main` (۷ فرمان)، `Selftest` (۳۲ چک) | ~۷۰۰ |
 
 ## ۲. قراردادهای طراحی
 
 1. **بدون وابستگی** — فقط JDK؛ رندر نرم به‌جای GL تا هدلس/تست/دسکتاپ همه از یک مسیر بروند.
-2. **قطعیت** — Rng با seed؛ delta ثابت 1/60 در هدلس؛ خروجی PNG تکرارپذیر.
+2. **قطعیت** — Rng با seed؛ delta ثابت؛ خروجی PNG و امتیاز بازی تکرارپذیر.
 3. **مدل/نما** — ادیتور = نمایش `EditorModel`؛ منطق صفر در Swing.
 4. **Log-not-throw** — خطای اسکریپت → Console؛ یک اسکریپت خراب بقیه را نمی‌کُشد.
-5. **Snapshot walk** — spawn/remove حین پیمایش ایمن است (signal safety).
+5. **Snapshot walk** — spawn/remove حین پیمایش ایمن (signal safety).
 6. **یک فرمت** — `.hscene`/`project.json` بین CLI و ادیتور مشترک.
+7. **یک مسیر شبیه‌سازی** — `ScriptHost.stepWorld` (فیزیک→برخورد→اسکریپت) را `hollow run`، حالت Play ادیتور و تست‌ها مشترک استفاده می‌کنند.
 
 ## ۳. زبان HollowScript
 
-مستند کامل: `docs/SCRIPT.md`. خلاصه پیاده‌سازی: بلوک با تورفتگی (INDENT/DEDENT با پشته)، تقدم ۸ سطحی، compound assign، لیست/map literal، متد-کال (`obj.fn(args)` → `Native.hCall` یا متد string/list)، dot-set روی map، خطاها با شماره خط.
+مستند کامل: `docs/SCRIPT.md`. تورفتگی (پشته INDENT/DEDENT)، تقدم ۸ سطحی، compound assign، لیست/map literal، متد-کال، dot-set روی map، **کلاس‌ها**: `class/extends/self/_init`، فیلدهای ریشه‌به‌برگ، جست‌وجوی متد در زنجیرهٔ ارث، declare-on-set، `TypeName.new(args)`، خطاها با شماره خط.
 
 ## ۴. رندر
 
-خط لوله: `model = node.worldMatrix()` → `vp = proj·view` → transformPoint (تقسیم بر w) → NDC→viewport → raster با edge-function → z-buffer (کوچکتر برنده) → سایه‌زنی: `albedo·(ambient + Lambert·intensity) + Blinn·0.45·intensity` با نرمال دو-رو. دوربین: `lookAt(eye, eye+forward(rot))`، forward برای rot=0 برابر ‎-Z.
+خط لوله: `model = node.worldMatrix()` → `vp = proj·view` → تقسیم بر w → NDC→viewport → raster با edge-function → z-buffer → سایه‌زنی Lambert+Blinn با نرمال دو-رو → **fog**: blend به رنگ افق بر اساس فاصلهٔ چشمی (FOG_NEAR=12, FOG_FAR=50). **سایهٔ planar**: projecting مش روی صفحهٔ `shadow_plane_y` در راستای نور، darken 0.55 با depth-bias (یک‌بار در هر پیکسل). **pick**: پرتو از پیکسل (basis دوربین) → rayBox (slab).
 
-## ۵. تست (۱۵۶ چک — همگی سبز)
+## ۵. فیزیک
+
+بدنه‌ها: `dynamic` گره‌ها حرکت می‌کنند؛ فقط mesh و node (مرئی، غیر-root) solid اند — دوربین/نور/اسکریپت جعبهٔ فیزیکی ندارند. نیم‌اندازه = scale (مکعب داخلی ±1×scale). حل: جاذبه → انتگرال → دو pass resolve کمینه‌محور؛ دو بدنهٔ dynamic نصف‌نصف؛ `bounciness` روی مؤلفهٔ برخوردی؛ سرعت کم (<0.5) صفر می‌شود (استراحت). رویدادها به ترتیب درخت — قطعی.
+
+## ۶. تست (۱۷۲ چک — همگی سبز)
 
 | سوئیت | چک | پوشش |
 |---|---|---|
-| VerifyH2Core | ۲۳ | JSON (escape/unicode/خطا)، Mat4 (ترکیب/چرخش/perspective/lookAt)، Rng (قطعیت/کران) |
-| VerifyH2Script | ۳۴ | Lexer (تورفتگی/escape/خطا)، Parser (خطا/elif/تک‌خطی)، Interp (تقدم/compound/حلقه‌ها/string/map/list/native/قطعیت/خطاها) |
-| VerifyH2Scene | ۲۵ | درخت+ترنسفورم عمیق، reparent، IO با همهٔ نودها+فرزند تودرتو، دوربین فعال، spawn/remove، هر سه قلاب اسکریپت، خطای لاگ‌شده |
-| VerifyH2Render | ۲۱ | پالت، OBJ (همهٔ فرم‌ها)، raster/z-buffer دو ترتیب، پشت‌دوربین، شدت نور، رندر صحنه، PNG |
-| VerifyH2Editor | ۲۷ | add/dup/rename/delete، اسکیما+setProperty هر نوع، roundtrip، files dock، run با input، manifest، preview |
-| Selftest | ۲۶ | invariantهای بین‌لایه‌ای end-to-end |
+| VerifyH2Core | ۲۳ | JSON، Mat4، Rng (قطعیت/کران) |
+| VerifyH2Script | ۳۴ | Lexer/Parser/Interp کامل |
+| VerifyH2Scene | ۲۵ | درخت/ترنسفورم/IO/قلاب‌ها |
+| VerifyH2Render | ۲۱ | OBJ/raster/z-buffer/نور/PNG |
+| VerifyH2Editor | ۲۷ | عملیات مدل/اسکیما/roundtrip |
+| VerifyH2Physics | ۱۰ | جاذبه/فرود دقیق/restitution/کلامپ افقی/تقسیم push/فیلتر solid/on_collision/pick |
+| Selftest | ۳۲ | بین‌لایه‌ای: کلاس‌ها، فیزیک e2e، undo/redo، play+drag+orbit، سایه |
 
-**CI:** `verify.sh` = build + selftest + ۵ سوئیت + smoke (new→render→run→PNG). قاعدهٔ همان نسخهٔ قبل: **ALL GREEN قبل از هر push.**
+**CI:** `verify.sh` = build + selftest + **۶ سوئیت** + smoke (new→render→run→PNG). **ALL GREEN قبل از هر push.**
 
-## ۶. نقشهٔ راه
+## ۷. نقشهٔ راه
 
-ادیتور (gizmo/undo)، رندر (سایه/بافت/کالینگ)، زبان (کلاس/signal/import)، پلتفرم (HTML5/Android GLES).
+صدا (WAV synth قطعی) + بافت procedural؛ signal/slot + scene instancing؛ HTML5/Android GLES؛ gizmo سه‌محوره + چند-سند.

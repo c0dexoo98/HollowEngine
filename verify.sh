@@ -25,7 +25,7 @@ out=$($JAVA -cp "$CP" com.hollow.cli.Main selftest 2>&1) \
   && echo "$out" | tail -1 && green "selftest" || { echo "$out" | tail -3; red "selftest"; }
 
 bold "== regression suites"
-for s in VerifyH2Core VerifyH2Script VerifyH2Scene VerifyH2Render VerifyH2Editor; do
+for s in VerifyH2Core VerifyH2Script VerifyH2Scene VerifyH2Render VerifyH2Editor VerifyH2Physics; do
   $JAVAC -encoding UTF-8 -nowarn -cp build-out/engine:build-out/editor -d build-out/verify verify/$s.java 2>/dev/null
   out=$($JAVA -cp build-out/verify:$CP "$s" 2>&1)
   if echo "$out" | grep -q "ALL .* TESTS PASSED"; then

@@ -60,6 +60,7 @@ public final class Interp {
 
     private final Program program;
     private final Map<String, FuncDef> funcs = new LinkedHashMap<>();
+    private final Map<String, ClassDef> classes = new LinkedHashMap<>();
     private final Env globals = new Env(null);
     private Consumer<String> out = System.out::println;
     private MathX.Rng rng = new MathX.Rng(0x1D3L);
@@ -69,6 +70,8 @@ public final class Interp {
         this.program = program;
         for(FuncDef f : program.funcs)
             funcs.put(f.name, f);
+        for(ClassDef c : program.classes)
+            classes.put(c.name, c);
     }
 
     public static Interp fromSource(String src){
@@ -252,6 +255,10 @@ public final class Interp {
         }
         if(e instanceof MethodCall){
             MethodCall mc = (MethodCall)e;
+            // ClassName.new(args) — instantiate a user class
+            if(mc.obj instanceof Ident && mc.name.equals("new")
+               && classes.containsKey(((Ident)mc.obj).name))
+                return instantiate(classes.get(((Ident)mc.obj).name), mc.args, env);
             Object obj = eval(mc.obj, env);
             List<Object> args = new ArrayList<>();
             for(Expr a : mc.args) args.add(eval(a, env));
@@ -532,7 +539,7 @@ public final class Interp {
                     return (double)rng.nextInt(n);
                 }
                 double lo = asNum(args.get(0), line), hi = asNum(args.get(1), line);
-                return rng.range((float)lo, (float)hi);
+                return rng.range(lo, hi);
             }
             case "srand": {
                 seed = (long)asNum(arg(args, 0, "srand"), line);
@@ -591,4 +598,104 @@ public final class Interp {
             throw new ScriptError(0, fn + "() missing argument " + (i + 1));
         return args.get(i);
     }
+
+    // ------------------------- classes -------------------------
+
+    /** instance of a user class: fields live in their own env; methods
+     *  resolve along the extends chain with implicit `self`. */
+    public final class ScriptObject implements Native {
+        public final ClassDef cls;
+        final Env fields = new Env(globals);
+
+        ScriptObject(ClassDef cls){ this.cls = cls; }
+
+        FuncDef findMethod(String name){
+            ClassDef c = cls;
+            while(c != null){
+                FuncDef m = c.methods.get(name);
+                if(m != null) return m;
+                c = c.superName == null ? null : classes.get(c.superName);
+            }
+            return null;
+        }
+
+        ClassDef findClass(String name){
+            ClassDef c = cls;
+            while(c != null){
+                if(c.name.equals(name)) return c;
+                c = c.superName == null ? null : classes.get(c.superName);
+            }
+            return null;
+        }
+
+        public Object callMethod(String name, List<Object> args, int line){
+            FuncDef m = findMethod(name);
+            if(m == null) throw new ScriptError(line, "class '" + cls.name + "' has no method '" + name + "'");
+            if(args.size() != m.params.size())
+                throw new ScriptError(line, "method '" + name + "' expects " + m.params.size()
+                    + " args, got " + args.size());
+            Env env = new Env(globals);
+            env.declare("self", this);
+            for(int i = 0; i < args.size(); i++) env.declare(m.params.get(i), args.get(i));
+            try {
+                execBlock(m.body, env);
+            } catch(ReturnEx r){
+                return r.value;
+            }
+            return null;
+        }
+
+        @Override public boolean hHas(String key){
+            return fields.has(key) || findMethod(key) != null;
+        }
+        @Override public Object hGet(String key){
+            if(fields.has(key)) return fields.get(key, 0);
+            if(findMethod(key) != null)
+                throw new ScriptError(0, "'" + key + "' is a method of '" + cls.name + "' — call it with ()");
+            throw new ScriptError(0, "class '" + cls.name + "' has no field '" + key + "'");
+        }
+        @Override public void hSet(String key, Object value){
+            if(fields.has(key)) fields.assign(key, value);
+            else fields.declare(key, value);          // declare-on-set (documented)
+        }
+        @Override public Object hCall(String name, List<Object> args){
+            return callMethod(name, args, 0);
+        }
+        @Override public String hTypeName(){ return cls.name; }
+        @Override public String toString(){ return cls.name + "#"; }
+    }
+
+    /** ClassName.new(args): super fields first, then leaf fields, then _init */
+    private Object instantiate(ClassDef cls, List<Expr> argExprs, Env callerEnv){
+        List<Object> args = new ArrayList<>();
+        for(Expr a : argExprs) args.add(eval(a, callerEnv));
+        // resolve the chain root→leaf once; unknown super → error
+        List<ClassDef> chain = new ArrayList<>();
+        for(ClassDef c = cls; c != null; c = c.superName == null ? null : lookupClass(c.superName, c)){
+            if(chain.contains(c)) throw new ScriptError(c.line, "circular 'extends' on class '" + c.name + "'");
+            chain.add(c);
+        }
+        java.util.Collections.reverse(chain);        // root first: base fields initialize first
+        ScriptObject obj = new ScriptObject(cls);
+        for(ClassDef c : chain)
+            for(VarStmt f : c.fields)
+                obj.fields.declare(f.name, f.init == null ? null : eval(f.init, obj.fields));
+        FuncDef init = obj.findMethod("_init");
+        if(init != null){
+            if(args.size() != init.params.size())
+                throw new ScriptError(init.line, "_init expects " + init.params.size() + " args, got " + args.size());
+            obj.callMethod("_init", args, init.line);
+        } else if(!args.isEmpty()){
+            throw new ScriptError(cls.line, "class '" + cls.name + "' has no _init but new() got " + args.size() + " args");
+        }
+        return obj;
+    }
+
+    private ClassDef lookupClass(String name, ClassDef from){
+        ClassDef c = classes.get(name);
+        if(c == null) throw new ScriptError(from.line, "unknown class '" + name + "'");
+        return c;
+    }
+
+    public boolean hasClass(String name){ return classes.containsKey(name); }
 }
