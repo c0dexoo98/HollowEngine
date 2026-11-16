@@ -4791,6 +4791,92 @@ public final class Commands {
             pass("v14 racks + channels");
         } catch(Throwable t){ fail("v14-cdl-drg", t); failures++; }
 
+        // --- v15.0.0 systems: tollgate / chimney sweep / buoy / tailor / bellfoundry / perfumer / keymaker / toyman ---
+        try {
+            com.hollow.world.TollgateSystem paid = null;
+            for(int s = 1; s <= 400 && paid == null; s++){
+                com.hollow.world.TollgateSystem probe = new com.hollow.world.TollgateSystem();
+                probe.seed = s;
+                probe.erect("oak");
+                probe.setToll("oak", 2);
+                probe.tickDay();
+                if(probe.gate("oak").passages == 1 && probe.gate("oak").revenue == 2) paid = probe;
+            }
+            if(paid == null) throw new AssertionError("tollgate pay");
+
+            com.hollow.world.ChimneySweepSystem held = new com.hollow.world.ChimneySweepSystem();
+            held.register("oak");
+            held.assignCrews("oak", 1);
+            held.tickDay(); held.tickDay(); held.tickDay();
+            if(held.hearth("oak").soot != 0 || held.hearth("oak").crewDays != 3)
+                throw new AssertionError("chimney sweep");
+            pass("v15 gates + sweeps");
+        } catch(Throwable t){ fail("v15-tgl-chm", t); failures++; }
+
+        try {
+            com.hollow.world.BuoySystem adrift = null;
+            for(int s = 1; s <= 400 && adrift == null; s++){
+                com.hollow.world.BuoySystem probe = new com.hollow.world.BuoySystem();
+                probe.seed = s;
+                probe.moor("oak");
+                for(int t = 0; t < 8; t++) probe.tickDay();
+                if(probe.buoy("oak").squalls == 0 && probe.buoy("oak").drift == 8
+                   && !probe.buoy("oak").onStation()) adrift = probe;
+            }
+            if(adrift == null) throw new AssertionError("buoy drift");
+
+            com.hollow.game.TailorSystem tl = new com.hollow.game.TailorSystem();
+            tl.deliverCloth(4);
+            tl.place("coat", 2);
+            tl.tickDay(); tl.tickDay();
+            if(tl.order(1) == null || !tl.order(1).done || !(tl.order(1).fitted ^ tl.order(1).botched)
+               || tl.cloth != 2) throw new AssertionError("tailor fitting");
+            pass("v15 moorings + stitches");
+        } catch(Throwable t){ fail("v15-boy-stc", t); failures++; }
+
+        try {
+            com.hollow.game.BellfoundrySystem tone = null;
+            for(int s = 1; s <= 400 && tone == null; s++){
+                com.hollow.game.BellfoundrySystem probe = new com.hollow.game.BellfoundrySystem();
+                probe.seed = s;
+                probe.deliverBronze(2);
+                probe.cast(1);
+                probe.tickDay();
+                if(!probe.bell(1).cracked && probe.trueBellCount() == 1 && probe.ring(1)) tone = probe;
+            }
+            if(tone == null) throw new AssertionError("bell tone");
+
+            com.hollow.game.PerfumerSystem pf = new com.hollow.game.PerfumerSystem();
+            pf.deliverPetals(6);
+            pf.distill("rose");
+            pf.tickDay(); pf.tickDay();
+            for(int t = 0; t < 10; t++) pf.tickDay();
+            if(pf.essence(1) == null || !pf.essence(1).ready || !pf.essence(1).faded
+               || pf.essence(1).daysOnShelf != 10) throw new AssertionError("perfumer shelf");
+            pass("v15 bells + scents");
+        } catch(Throwable t){ fail("v15-bll-scn", t); failures++; }
+
+        try {
+            com.hollow.game.KeymakerSystem km = new com.hollow.game.KeymakerSystem();
+            km.deliverBlanks(3);
+            km.cut("gate");
+            km.copy(1);
+            if(km.key(1) == null || km.blanks != 1 || !(km.key(1).copies == 1 ^ km.key(1).botchedCopies == 1)
+               || !km.matches(1, "gate")) throw new AssertionError("keymaker copies");
+
+            com.hollow.game.ToymanSystem sale = null;
+            for(int s = 1; s <= 400 && sale == null; s++){
+                com.hollow.game.ToymanSystem probe = new com.hollow.game.ToymanSystem();
+                probe.seed = s;
+                probe.deliverWood(1);
+                probe.carve("horse");
+                probe.paint(1);
+                if(probe.fairDay() == 1 && probe.takings == 2) sale = probe;
+            }
+            if(sale == null || !sale.toy(1).sold) throw new AssertionError("toyman fair day");
+            pass("v15 keys + stalls");
+        } catch(Throwable t){ fail("v15-key-toy", t); failures++; }
+
         return failures;
     }
 

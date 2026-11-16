@@ -46,7 +46,7 @@ fi
 # ---------- 3) regression suites ----------
 step "regression suites (math/infra/audio/physics/net/nav/gameplay/platform + bench)"
 mkdir -p "$OUT/verify"
-for suite in VerifyMath2 VerifyInfra VerifyAudio VerifyPhysics VerifyNet VerifyNav VerifyGameplay VerifyPlatform VerifyAaa VerifyV5 VerifyV6 VerifyV7 VerifyV8 VerifyV9 VerifyV10 VerifyV11 VerifyV12 VerifyV13 VerifyV14 BenchCore; do
+for suite in VerifyMath2 VerifyInfra VerifyAudio VerifyPhysics VerifyNet VerifyNav VerifyGameplay VerifyPlatform VerifyAaa VerifyV5 VerifyV6 VerifyV7 VerifyV8 VerifyV9 VerifyV10 VerifyV11 VerifyV12 VerifyV13 VerifyV14 VerifyV15 BenchCore; do
   src="$VDIR/$suite.java"
   [ -f "$src" ] || { bad "$suite (missing $src)"; continue; }
   if "$JAVAC" -encoding UTF-8 -nowarn -cp "$OUT/engine" -d "$OUT/verify" "$src" 2>/tmp/verify_${suite}.err.txt \
