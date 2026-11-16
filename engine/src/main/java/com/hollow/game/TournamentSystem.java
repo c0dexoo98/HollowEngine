@@ -45,7 +45,11 @@ public final class TournamentSystem {
     public long seed = 0x70C4L;
     private int nextId = 1;
 
-    public Knight define(Knight k){ knights.put(k.name, k); return k; }
+    public Knight define(Knight k){
+        if(k == null || k.name == null || k.name.isEmpty()) return null;
+        knights.put(k.name, k);
+        return k;
+    }
     public Knight knight(String name){ return knights.get(name); }
 
     public Tournament schedule(String name, int prize, int fameReward){

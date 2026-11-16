@@ -5283,6 +5283,93 @@ public final class Commands {
             pass("v19 looms, vats + FIX19-001");
         } catch(Throwable t){ fail("v19-loom-dyr-fx", t); failures++; }
 
+        // --- v20.0.0 systems: ballad hall / choir school / rehearsal yard / bill wall / minstrel / balladmaker / juggler / fiddler + FIX20-001 ---
+        try {
+            com.hollow.world.BalladHallSystem hal = new com.hollow.world.BalladHallSystem();
+            hal.build("byram");
+            hal.book("byram");
+            hal.tickDay();
+            if(hal.hall("byram") == null || hal.hall("byram").bookings != 0
+               || !((hal.hall("byram").gross == 30 && hal.hall("byram").full == 1)
+                    || (hal.hall("byram").gross == 12 && hal.hall("byram").half == 1)))
+                throw new AssertionError("ballad hall");
+
+            com.hollow.world.ChoirSchoolSystem chr = new com.hollow.world.ChoirSchoolSystem();
+            chr.found("ashvale");
+            chr.enroll("ashvale");
+            chr.enroll("ashvale");
+            chr.tickDay(); chr.tickDay(); chr.tickDay(); chr.tickDay();
+            com.hollow.world.ChoirSchoolSystem.Choir ch = chr.choir("ashvale");
+            if(ch == null || ch.daysTrained != 0 || ch.pupils != 0
+               || !((ch.voiced == 2 && ch.croaks == 0) || (ch.voiced == 1 && ch.croaks == 1)
+                    || (ch.voiced == 0 && ch.croaks == 2)))
+                throw new AssertionError("choir school");
+            pass("v20 halls + choirs");
+        } catch(Throwable t){ fail("v20-hal-choir", t); failures++; }
+
+        try {
+            com.hollow.world.RehearsalYardSystem yrd = new com.hollow.world.RehearsalYardSystem();
+            yrd.open("byram");
+            yrd.reserve("byram");
+            yrd.reserve("byram");
+            yrd.tickDay();
+            if(yrd.yard("byram").rehearsed + yrd.yard("byram").complaints != 2)
+                throw new AssertionError("rehearsal yard invariant");
+
+            com.hollow.world.BillPosterSystem wal = new com.hollow.world.BillPosterSystem();
+            wal.raise("byram");
+            wal.stack("byram", 10);
+            wal.tickDay();
+            com.hollow.world.BillPosterSystem.Wall w = wal.wall("byram");
+            if(w == null || !((w.posted == 4 && w.bills == 6 && w.faded == 0)
+                              || (w.faded == 2 && w.bills == 8 && w.posted == 0)))
+                throw new AssertionError("bill wall");
+            pass("v20 yards + walls");
+        } catch(Throwable t){ fail("v20-yrd-wal", t); failures++; }
+
+        try {
+            com.hollow.game.MinstrelSystem mns = new com.hollow.game.MinstrelSystem();
+            mns.play("Greensleeves");
+            mns.tickDay();
+            if(mns.booking(1) == null || !mns.booking(1).done
+               || !(mns.silver == 5 ^ mns.silver == 1)) throw new AssertionError("minstrel");
+
+            com.hollow.game.BalladmakerSystem bld = new com.hollow.game.BalladmakerSystem();
+            bld.deliverQuires(2);
+            bld.compose("The Fox");
+            bld.tickDay(); bld.tickDay(); bld.tickDay();
+            if(bld.ballad(1) == null || !bld.ballad(1).done || bld.quires != 1
+               || !(bld.ballad(1).crowdPleaser ^ bld.ballad(1).flop))
+                throw new AssertionError("balladmaker");
+            com.hollow.game.BalladmakerSystem bld2 = new com.hollow.game.BalladmakerSystem();
+            bld2.load(bld.save());
+            com.hollow.game.BalladmakerSystem.Ballad b2 = bld2.compose("The Fox");   // saved quires 1
+            if(b2 == null || b2.id != 2 || bld2.quires != 0) throw new AssertionError("balladmaker id continuity");
+            pass("v20 minstrels + balladmakers");
+        } catch(Throwable t){ fail("v20-mns-bld", t); failures++; }
+
+        try {
+            // FIX20-001: tournament define refuses null and empty names
+            com.hollow.game.TournamentSystem ts = new com.hollow.game.TournamentSystem();
+            if(ts.define(null) != null || ts.define(new com.hollow.game.TournamentSystem.Knight("", 0.5f)) != null
+               || ts.define(new com.hollow.game.TournamentSystem.Knight("Ser Aldric", 0.9f)) == null)
+                throw new AssertionError("tournament define guard");
+
+            com.hollow.game.JugglerSystem jug = new com.hollow.game.JugglerSystem();
+            jug.perform(5);
+            jug.tickDay();
+            if(jug.routine(1) == null || !jug.routine(1).done
+               || jug.cleanRuns + jug.drops != 1) throw new AssertionError("juggler");
+
+            com.hollow.game.FiddlerSystem fdd = new com.hollow.game.FiddlerSystem();
+            fdd.bookNight("Soldier's Joy");
+            fdd.tickDay();
+            if(fdd.night(1) == null || !fdd.night(1).done
+               || !((fdd.dancers == 8 && fdd.snaps == 0) || (fdd.dancers == 2 && fdd.snaps == 1)))
+                throw new AssertionError("fiddler");
+            pass("v20 jugglers, fiddlers + FIX20-001");
+        } catch(Throwable t){ fail("v20-jug-fdd-fx", t); failures++; }
+
         return failures;
     }
 
