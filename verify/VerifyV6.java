@@ -406,5 +406,14 @@ public class VerifyV6 {
         j2.load(json);
         check("journal: save/load", j2.isDiscovered("goblin") && j2.entry("troll") != null
               && j2.entry("goblin").body.contains("green"), "");
+
+        // regression: reloading records must not inflate nextNoteId — ids continue from the save
+        j.addNote("boots", "shop");
+        j.addNote("ropes", "shop");
+        JournalSystem j3 = new JournalSystem();
+        j3.load(j.save());
+        JournalSystem.Note n3 = j3.addNote("third", "camp");
+        check("journal: note id continues after load", n3 != null && n3.id == 4,
+              "id=" + (n3 == null ? -1 : n3.id));
     }
 }

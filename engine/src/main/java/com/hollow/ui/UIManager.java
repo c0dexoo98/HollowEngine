@@ -579,7 +579,10 @@ public final class UIManager {
                 if(!type.equals("panel")) Log.w("UI", "unknown widget type '" + type + "' — using panel");
                 w = new Panel(); break;
         }
-        w.id = Json.str(node.get("id"), type + "_" + autoId++);
+        // saved id wins; the auto counter only advances when we actually allocate
+        String savedWidgetId = Json.str(node.get("id"), null);
+        w.id = savedWidgetId != null && !savedWidgetId.isEmpty()
+            ? savedWidgetId : type + "_" + autoId++;
         // anchors: {l,t,r,b} map or [l,t,r,b] array
         Object an = node.get("anchors");
         if(an instanceof Map){

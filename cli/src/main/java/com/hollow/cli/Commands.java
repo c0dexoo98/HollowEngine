@@ -4570,6 +4570,132 @@ public final class Commands {
             pass("v12 bakery + pasture");
         } catch(Throwable t){ fail("v12-bak-pst", t); failures++; }
 
+        // --- v13.0.0 systems: astrologer / apothecary / ratcatcher / mint / scribe / brewery / tannery / healer ---
+        try {
+            com.hollow.world.AstrologerSystem ast = new com.hollow.world.AstrologerSystem();
+            com.hollow.world.AstrologerSystem chartSeed = null;
+            for(int s = 1; s <= 400 && chartSeed == null; s++){
+                com.hollow.world.AstrologerSystem probe = new com.hollow.world.AstrologerSystem();
+                probe.seed = s;
+                probe.open("oak");
+                probe.tickDay();
+                if(probe.observatory("oak").charts > 0) chartSeed = probe;
+            }
+            if(chartSeed == null || chartSeed.observatory("oak").charts != 1
+               || !"The Plough reigns tonight".equals(chartSeed.observatory("oak").latestOmen()))
+                throw new AssertionError("astrologer chart");
+
+            com.hollow.game.ApothecarySystem ap = new com.hollow.game.ApothecarySystem();
+            ap.deliverHerbs(10);
+            ap.brew("tonic", 2, 0);
+            ap.brew("salve", 1, 3);
+            ap.tickDay(); ap.tickDay();
+            if(ap.finishedCount() != 2 || Math.abs(ap.skill - 0.52f) > 0.0001f)
+                throw new AssertionError("apothecary brews");
+            com.hollow.game.ApothecarySystem ap2 = new com.hollow.game.ApothecarySystem();
+            ap2.load(ap.save());
+            com.hollow.game.ApothecarySystem.Batch db = ap2.brew("draught", 1, 0);
+            if(db == null || db.id != 3 || ap2.herbs != 3) throw new AssertionError("apothecary id continuity");
+            pass("v13 stars + remedies");
+        } catch(Throwable t){ fail("v13-ast-apc", t); failures++; }
+
+        try {
+            com.hollow.world.RatcatcherSystem rs = new com.hollow.world.RatcatcherSystem();
+            rs.open("oak");
+            rs.deployTraps("oak", 3);
+            rs.ward("oak").rats = 10;
+            rs.tickDay(); rs.tickDay();
+            if(rs.ward("oak").rats != 0 || rs.ward("oak").catches != 11) throw new AssertionError("ratcatcher traps");
+            rs.ward("oak").rats = 65;
+            rs.deployTraps("oak", 0);                    // traps from the first part are still out
+            rs.tickDay();
+            if(rs.ward("oak").rats != 74 || rs.ward("oak").infestations != 1) throw new AssertionError("rat infestation");
+
+            com.hollow.game.MintSystem mint = null;
+            for(int s = 1; s <= 400 && mint == null; s++){
+                com.hollow.game.MintSystem probe = new com.hollow.game.MintSystem();
+                probe.seed = s;
+                probe.deliverBullion(5);
+                probe.tickDay(); probe.tickDay();
+                if(probe.scandals == 0 && probe.coins == 40 && probe.bars == 1) mint = probe;
+            }
+            if(mint == null) throw new AssertionError("mint clean strikes");
+            pass("v13 vermin + coinage");
+        } catch(Throwable t){ fail("v13-rat-mnt", t); failures++; }
+
+        try {
+            com.hollow.world.ScribeSystem moth = null;
+            for(int s = 1; s <= 400 && moth == null; s++){
+                com.hollow.world.ScribeSystem probe = new com.hollow.world.ScribeSystem();
+                probe.seed = s;
+                probe.found("oak", 2);
+                probe.deliverInk("oak", 3);
+                probe.tickDay();
+                if(probe.library("oak").mothStrikes != 0 || probe.library("oak").copied != 2) continue;
+                probe.tickDay();
+                if(probe.library("oak").mothStrikes == 1 && probe.library("oak").copied == 2
+                   && probe.library("oak").ink == 0) moth = probe;
+            }
+            if(moth == null) throw new AssertionError("scribe moths");
+
+            com.hollow.game.BrewerySystem good = null, skunk = null;
+            for(int s = 1; s <= 400 && (good == null || skunk == null); s++){
+                com.hollow.game.BrewerySystem probe = new com.hollow.game.BrewerySystem();
+                probe.seed = s;
+                probe.deliverGrain(3);
+                probe.brew("bitter", 0);
+                for(int i = 0; i < 4; i++) probe.tickDay();
+                if(probe.cask(1).tapped && !probe.cask(1).skunked && probe.ales == 10){
+                    if(good == null) good = probe;
+                } else if(probe.cask(1).tapped && probe.cask(1).skunked && probe.ales == 0 && skunk == null){
+                    skunk = probe;
+                }
+            }
+            if(good == null || skunk == null) throw new AssertionError("brewery casks");
+
+            com.hollow.game.BrewerySystem br2 = new com.hollow.game.BrewerySystem();
+            br2.deliverGrain(9);
+            br2.brew("bitter", 0);
+            br2.brew("stout", 3);
+            br2.tickDay();
+            com.hollow.game.BrewerySystem br3 = new com.hollow.game.BrewerySystem();
+            br3.load(br2.save());
+            if(br3.brew("porter", 0) == null || br3.grain != 0) throw new AssertionError("brewery id continuity");
+            pass("v13 scriptoriums + ales");
+        } catch(Throwable t){ fail("v13-scr-brw", t); failures++; }
+
+        try {
+            com.hollow.world.TannerySystem tan = null;
+            for(int s = 1; s <= 400 && tan == null; s++){
+                com.hollow.world.TannerySystem probe = new com.hollow.world.TannerySystem();
+                probe.seed = s;
+                probe.build("oak");
+                probe.deliverHides("oak", 10);
+                for(int i = 0; i < 5; i++) probe.tickDay();
+                if(probe.pit("oak").spoils == 0 && probe.pit("oak").batches == 1
+                   && Math.abs(probe.leatherOf("oak") - 8f) < 0.001f) tan = probe;
+            }
+            if(tan == null || Math.abs(tan.takeLeather("oak") - 8f) > 0.001f) throw new AssertionError("tannery soak");
+
+            com.hollow.game.HealerSystem hs = new com.hollow.game.HealerSystem();
+            if(!hs.admit("pip", "fever", 2) || !hs.admit("wren", "flux", 2) || !hs.admit("mira", "sprain", 2)
+               || hs.admit("zed", "cough", 2)) throw new AssertionError("healer beds");
+            if(!hs.discharge("wren") || hs.bedCount() != 2 || hs.discharge("ghost")) throw new AssertionError("healer discharge");
+            com.hollow.game.HealerSystem rec = null;
+            for(int s = 1; s <= 400 && rec == null; s++){
+                com.hollow.game.HealerSystem probe = new com.hollow.game.HealerSystem();
+                probe.seed = s;
+                probe.admit("pip", "fever", 1);
+                probe.tickDay();
+                if(probe.recoveredCount == 1 && probe.bedCount() == 0) rec = probe;
+            }
+            if(rec == null) throw new AssertionError("healer recovery");
+            com.hollow.game.HealerSystem hs2 = new com.hollow.game.HealerSystem();
+            hs2.load(rec.save());
+            if(hs2.recoveredCount != 1 || hs2.bedCount() != 0) throw new AssertionError("healer save/load");
+            pass("v13 leather + hospice");
+        } catch(Throwable t){ fail("v13-tan-heal", t); failures++; }
+
         return failures;
     }
 

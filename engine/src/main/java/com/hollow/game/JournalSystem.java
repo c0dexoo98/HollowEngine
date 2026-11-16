@@ -140,7 +140,9 @@ public final class JournalSystem {
             if(ns != null) for(Object o : ns){
                 Map<String,Object> m = Json.obj(o);
                 if(m == null) continue;
-                notes.add(new Note((int)Json.num(m.get("id"), nextNoteId++),
+                // saved id if present; otherwise allocate (never inflates on load)
+                int saved = (int)Json.num(m.get("id"), 0);
+                notes.add(new Note(saved > 0 ? saved : nextNoteId++,
                     Json.str(m.get("text"), ""), Json.str(m.get("marker"), "")));
             }
         } catch(Exception ignored){ }

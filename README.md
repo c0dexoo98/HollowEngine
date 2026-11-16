@@ -199,6 +199,17 @@
 > Blacksmith/Chronicle/Auction/Rumor/Tournament/Bounty/Herald/Expedition/Wager + رگرسیون پیوستگی: VerifyV7 → ۸۷)،
 > و رشد چراگاه برای گله‌های زیر ۲۵ رأس همیشه صفر بود (انباشتگر برهٔ کسری).
 > تست کل: `hollow selftest` — **۲۲۵ تست** + ۱۷ سوئیت regression — **ALL GREEN**.
+>
+> **v13.0** (`ritual & remedy`) — ۸ سیستم آیین و درمان: **AstrologerSystem** (رصدخانه با roll تک‌مرحله‌ای آسمان — ابر
+> ۱۵٪/نقشه ۵۹.۵٪، سقف ۸ نقشه، فال از آخرین صورت فلکی)، **ApothecarySystem** (دم‌کردن‌های موازی با پرداخت سبزیجات
+> پیش‌پرداخت، efficacy در باند skill، رشد مهارت)، **RatcatcherSystem** (تکثیر موش بدون roll، تله‌ها بار ثابت، زنگ
+> طغیان بالای ۶۰)، **MintSystem** (ضرب سکه از شمش، رسوایی کوت‌کردن ۲٪)، **ScribeSystem** (نسخه‌برداری تا تمام‌شدن
+> جوهر، بید کتاب‌خوار)، **BrewerySystem** (تخمیر ۴روزه، cask ترشِ ۱۰٪)، **TannerySystem** (چرخه ۵روزه آهک، فساد
+> نصف‌کردن، بازده ۸۰٪)، **HealerSystem** (هوستپیس با ۳ تخت، شفای قطعی ۸۵٪، ترخیص بدون آمار). `VerifyV13` — ۵۴ چک.
+> فیکس‌های این دور: دو الگوی eager باقی‌مانده (JournalSystem با فیلد nextNoteId + UIManager autoId — همان کلاس ۱۵فایلی
+> دور قبل؛ VerifyV6 → ۸۶)، و همبستگی خروجی دوم Rng برای seedهای عددی کوچک (xorshift خام) که Astrologer — تنها
+> سیستمی با دو roll در یک تیک — را از نظر آماری می‌شکست؛ به قرارداد تک-roll کدبیس برگشت (یک roll، پارتیشن آسمان).
+> تست کل: `hollow selftest` — **۲۲۹ تست** + ۱۸ سوئیت regression — **ALL GREEN**.
 
 ---
 
@@ -266,4 +277,4 @@ export JAVA_HOME=<jdk-21+> ANDROID_SDK_ROOT=<sdk>
 
 مستندات بیشتر: `docs/SPEC.md` (قرارداد ماژول‌ها + پیوست سیستم‌های v2.6 تا v8.0)، `docs/CLI.md`
 (مرجع خط فرمان + رگرسیون CI)، `docs/FEATURES.md` (ماتریس ۵۷۰ قابلیت + پیوست ۵۳ قابلیت نسخه‌های v2.6 تا v8.0).
-رگرسیون کامل CI: `bash verify.sh` (۱۷ سوئیت + selftest — ALL GREEN).
+رگرسیون کامل CI: `bash verify.sh` (۱۸ سوئیت + selftest — ALL GREEN).
