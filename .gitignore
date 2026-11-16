@@ -2,3 +2,5 @@ build-out/
 *.class
 frame.png
 runtime-android/build/
+build/
+.gradle/
